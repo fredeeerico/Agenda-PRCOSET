@@ -192,10 +192,9 @@ with aba_form:
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """, dados)
             conn.commit()
-            # safe rerun sem conflito de estado
-            st.session_state.editando=False
-            st.session_state.evento_id=None
-            st.experimental_rerun()
+            st.session_state.editando = False
+            st.session_state.evento_id = None
+            st.experimental_rerun()  # ✅ seguro aqui
 
 # -----------------------------
 # ABA EVENTOS
@@ -217,8 +216,9 @@ with aba_eventos:
     for ev in eventos:
         eid, agenda_pres, titulo, data_ev, hi, hf, local, endereco, cobertura, resp, equip, obs, precisa_motor, nome_motor, tel_motor, status = ev
 
-        # --- CONVERSÃO SEGURA ---
+        # --- Conversão segura ---
         data_dt = data_ev if isinstance(data_ev, date) else datetime.strptime(str(data_ev), "%Y-%m-%d").date()
+
         def safe_time_parse(h):
             if isinstance(h, time):
                 return h
@@ -229,6 +229,7 @@ with aba_eventos:
                 except ValueError:
                     continue
             return time(0,0)
+        
         hi_dt = safe_time_parse(hi)
         hf_dt = safe_time_parse(hf)
         inicio_dt = datetime.combine(data_dt, hi_dt)
@@ -290,18 +291,24 @@ with aba_eventos:
         </div>
         """, unsafe_allow_html=True)
 
-        # --- Botões ---
-        col1, col2, col3 = st.columns(3)
-        if col1.button("✏️ Editar", key=f"edit{eid}"):
+        # --- Botões com funções seguras ---
+        def editar_evento(evento_id=eid):
             st.session_state.editando=True
-            st.session_state.evento_id=eid
+            st.session_state.evento_id=evento_id
             st.experimental_rerun()
-        if col2.button("❌ Cancelar/Reativar", key=f"cancel{eid}"):
-            novo_status = "CANCELADO" if status=="ATIVO" else "ATIVO"
-            cursor.execute("UPDATE eventos SET status=%s WHERE id=%s",(novo_status,eid))
+
+        def cancelar_reativar_evento(evento_id=eid, status_atual=status):
+            novo_status = "CANCELADO" if status_atual=="ATIVO" else "ATIVO"
+            cursor.execute("UPDATE eventos SET status=%s WHERE id=%s",(novo_status,evento_id))
             conn.commit()
             st.experimental_rerun()
-        if col3.button("🗑 Apagar", key=f"del{eid}"):
-            cursor.execute("DELETE FROM eventos WHERE id=%s",(eid,))
+
+        def apagar_evento(evento_id=eid):
+            cursor.execute("DELETE FROM eventos WHERE id=%s",(evento_id,))
             conn.commit()
             st.experimental_rerun()
+
+        c1, c2, c3 = st.columns(3)
+        c1.button("✏️ Editar", key=f"edit{eid}", on_click=editar_evento)
+        c2.button("❌ Cancelar/Reativar", key=f"cancel{eid}", on_click=cancelar_reativar_evento)
+        c3.button("🗑 Apagar", key=f"del{eid}", on_click=apagar_evento)
