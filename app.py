@@ -1,21 +1,9 @@
-# app.py - Agenda PRCOSET Streamlit
-# -----------------------------
-# Funcionalidade completa:
-# - Supabase/PostgreSQL
-# - 10 eventos de teste automáticos
-# - Cards pixel-perfect
-# - Filtros por data, agenda e responsável
-# - Botões Editar, Cancelar/Reativar e Apagar sem erro
-# - Conversão segura de datas e horas
-# - Seção de cores configurável
-# -----------------------------
-
 import streamlit as st
 import psycopg2
 from datetime import datetime, date, time, timedelta, timezone
 
 # -----------------------------
-# CONFIGURAÇÃO DE CORES (alterar aqui)
+# CONFIGURAÇÃO DE CORES
 # -----------------------------
 COR_FUNDO_PRESIDENTE = "#2b488e"
 COR_FUNDO_OUTRA = "#109439"
@@ -32,14 +20,17 @@ OPACIDADE_PASSADO = "0.6"
 # -----------------------------
 # CONEXÃO POSTGRES (SUPABASE)
 # -----------------------------
-conn = psycopg2.connect(
-    host=st.secrets["DB_HOST"],
-    database=st.secrets["DB_NAME"],
-    user=st.secrets["DB_USER"],
-    password=st.secrets["DB_PASSWORD"],
-    port=st.secrets["DB_PORT"],
-    sslmode=st.secrets["DB_SSLMODE"],
-)
+def get_connection():
+    return psycopg2.connect(
+        host=st.secrets["DB_HOST"],
+        database=st.secrets["DB_NAME"],
+        user=st.secrets["DB_USER"],
+        password=st.secrets["DB_PASSWORD"],
+        port=st.secrets["DB_PORT"],
+        sslmode=st.secrets["DB_SSLMODE"],
+    )
+
+conn = get_connection()
 cursor = conn.cursor()
 
 # -----------------------------
@@ -68,48 +59,9 @@ CREATE TABLE IF NOT EXISTS eventos (
 conn.commit()
 
 # -----------------------------
-# INSERIR 10 EVENTOS DE TESTE (SE TABELA VAZIA)
-# -----------------------------
-cursor.execute("SELECT COUNT(*) FROM eventos")
-if cursor.fetchone()[0] == 0:
-    hoje = datetime.now(timezone(timedelta(hours=-3))).date()
-    ontem = hoje - timedelta(days=1)
-    semana_passada = hoje - timedelta(days=7)
-    amanha = hoje + timedelta(days=1)
-    proxima_semana = hoje + timedelta(days=7)
-
-    eventos_teste = [
-        # Ontem
-        (True, "Reunião Estratégica", ontem, time(9,0), time(10,0), "Prefeitura", "Sala 1", "Redes, Foto", "Fred", "Câmera", "Obs", False, "", "", "ATIVO"),
-        (False, "Visita Técnica", ontem, time(14,0), time(15,0), "Obra Central", "Endereço X", "Vídeo", "Ana", "Drone", "Obs", True, "Carlos", "11999999999", "ATIVO"),
-        # Semana passada
-        (True, "Coletiva de Imprensa", semana_passada, time(10,0), time(11,0), "Auditório", "Centro", "Imprensa", "Thais", "Microfone", "Obs", False, "", "", "CANCELADO"),
-        (False, "Evento Comunitário", semana_passada, time(16,0), time(18,0), "Praça", "Bairro Y", "Foto", "Fred, Ana", "Câmera", "Obs", False, "", "", "ATIVO"),
-        # Hoje
-        (True, "Reunião com Secretários", hoje, time(8,0), time(9,30), "Gabinete", "Prefeitura", "Redes", "Fred, Thais", "Notebook", "Obs", True, "João", "11988888888", "ATIVO"),
-        (False, "Entrega de Obras", hoje, time(11,0), time(12,0), "Obra Z", "Endereço Z", "Vídeo, Foto", "Ana", "Drone", "Obs", False, "", "", "ATIVO"),
-        # Amanhã
-        (True, "Agenda Oficial", amanha, time(9,0), time(10,0), "Gabinete", "Prefeitura", "Redes", "Fred", "Câmera", "Obs", False, "", "", "ATIVO"),
-        (False, "Reunião Planejamento", amanha, time(15,0), time(16,0), "Sala 3", "Prefeitura", "Foto", "Thais", "Tripé", "Obs", False, "", "", "ATIVO"),
-        # Próxima semana
-        (True, "Evento Regional", proxima_semana, time(10,0), time(12,0), "Centro Eventos", "Centro", "Imprensa", "Fred, Ana, Thais", "Kit completo", "Obs", True, "Marcos", "11977777777", "ATIVO"),
-        (False, "Visita Escolar", proxima_semana, time(14,0), time(15,30), "Escola ABC", "Bairro W", "Foto", "Ana", "Câmera", "Obs", False, "", "", "ATIVO"),
-    ]
-
-    for ev in eventos_teste:
-        cursor.execute("""
-        INSERT INTO eventos (
-            agenda_presidente, titulo, data, hora_inicio, hora_fim,
-            local, endereco, cobertura, responsaveis, equipamentos,
-            observacoes, precisa_motorista, motorista_nome, motorista_telefone, status
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """, ev)
-    conn.commit()
-
-# -----------------------------
 # CONFIGURAÇÃO DA PÁGINA
 # -----------------------------
-st.set_page_config(page_title="Agenda PRCOSET", page_icon="📅", layout="centered")
+st.set_page_config(page_title="Agenda PRCOSET", page_icon="📅", layout="wide")
 st.title("📅 Agenda PRCOSET")
 
 # -----------------------------
@@ -123,192 +75,132 @@ if "evento_id" not in st.session_state:
 # -----------------------------
 # ABAS
 # -----------------------------
-aba_eventos, aba_form = st.tabs(["📋 Eventos", "📝 Novo Evento"])
+aba_eventos, aba_form = st.tabs(["📋 Eventos", "📝 Gerenciar Evento"])
 
 # -----------------------------
-# ABA NOVO EVENTO
+# ABA NOVO/EDITAR EVENTO
 # -----------------------------
 with aba_form:
-    evento = None
+    evento_db = None
     if st.session_state.editando and st.session_state.evento_id:
         cursor.execute("SELECT * FROM eventos WHERE id=%s", (st.session_state.evento_id,))
-        evento = cursor.fetchone()
-        st.warning("✏️ Você está editando um evento já existente.")
+        evento_db = cursor.fetchone()
+        st.warning(f"✏️ Editando evento ID: {st.session_state.evento_id}")
+        if st.button("Cancelar Edição"):
+            st.session_state.editando = False
+            st.session_state.evento_id = None
+            st.rerun()
 
-    with st.form("form_evento"):
-        agenda_presidente = st.checkbox("👑 Agenda do Presidente?", value=bool(evento[1]) if evento else False)
-        precisa_motorista = st.checkbox("🚗 Precisa de motorista?", value=bool(evento[12]) if evento else False)
-        titulo = st.text_input("📝 Título", value=evento[2] if evento else "")
+    with st.form("form_evento", clear_on_submit=True):
+        col_tipo1, col_tipo2 = st.columns(2)
+        with col_tipo1:
+            agenda_presidente = st.checkbox("👑 Agenda do Presidente?", value=bool(evento_db[1]) if evento_db else False)
+        with col_tipo2:
+            precisa_motorista = st.checkbox("🚗 Precisa de motorista?", value=bool(evento_db[12]) if evento_db else False)
+        
+        titulo = st.text_input("📝 Título", value=evento_db[2] if evento_db else "")
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            data_evento = st.date_input("📅 Data", value=evento[3] if evento else date.today())
+            data_evento = st.date_input("📅 Data", value=evento_db[3] if evento_db else date.today())
         with col2:
-            hora_inicio = st.time_input("⏰ Início", value=evento[4] if evento else time(9,0))
+            hora_inicio = st.time_input("⏰ Início", value=evento_db[4] if evento_db else time(9,0))
         with col3:
-            hora_fim = st.time_input("⏰ Fim", value=evento[5] if evento else time(10,0))
+            hora_fim = st.time_input("⏰ Fim", value=evento_db[5] if evento_db else time(10,0))
 
-        local = st.text_input("📍 Local", value=evento[6] if evento else "")
-        endereco = st.text_input("🏠 Endereço", value=evento[7] if evento else "")
-        cobertura = st.multiselect("🎥 Cobertura", ["Redes", "Foto", "Vídeo", "Imprensa"],
-                                   default=evento[8].split(", ") if evento and evento[8] else [])
-        responsaveis = st.text_input("👥 Responsáveis", value=evento[9] if evento else "")
-        equipamentos = st.text_input("🎒 Equipamentos", value=evento[10] if evento else "")
-        observacoes = st.text_area("📝 Observações", value=evento[11] if evento else "")
+        local = st.text_input("📍 Local", value=evento_db[6] if evento_db else "")
+        endereco = st.text_input("🏠 Endereço", value=evento_db[7] if evento_db else "")
+        
+        opcoes_cob = ["Redes", "Foto", "Vídeo", "Imprensa"]
+        def_cob = evento_db[8].split(", ") if evento_db and evento_db[8] else []
+        cobertura = st.multiselect("🎥 Cobertura", opcoes_cob, default=[c for c in def_cob if c in opcoes_cob])
+        
+        responsaveis = st.text_input("👥 Responsáveis", value=evento_db[9] if evento_db else "")
+        equipamentos = st.text_input("🎒 Equipamentos", value=evento_db[10] if evento_db else "")
+        observacoes = st.text_area("📝 Observações", value=evento_db[11] if evento_db else "")
 
-        motorista_nome = ""
-        motorista_telefone = ""
-        if precisa_motorista:
-            motorista_nome = st.text_input("Nome do motorista", value=evento[13] if evento else "")
-            motorista_telefone = st.text_input("Telefone do motorista", value=evento[14] if evento else "")
+        motorista_nome = st.text_input("Nome do motorista", value=evento_db[13] if evento_db else "")
+        motorista_telefone = st.text_input("Telefone do motorista", value=evento_db[14] if evento_db else "")
+        
+        status = st.selectbox("Status", ["ATIVO", "CANCELADO"], index=0 if not evento_db or evento_db[15]=="ATIVO" else 1)
 
-        status = st.selectbox("Status", ["ATIVO", "CANCELADO"],
-                              index=0 if not evento or evento[15]=="ATIVO" else 1)
-
-        if st.form_submit_button("💾 Salvar"):
+        submit = st.form_submit_button("💾 Salvar Evento")
+        
+        if submit:
             dados = (
-                1 if agenda_presidente else 0,
-                titulo, data_evento,
-                hora_inicio, hora_fim,
-                local, endereco, ", ".join(cobertura),
-                responsaveis, equipamentos, observacoes,
-                1 if precisa_motorista else 0,
-                motorista_nome, motorista_telefone, status
+                agenda_presidente, titulo, data_evento, hora_inicio, hora_fim,
+                local, endereco, ", ".join(cobertura), responsaveis, equipamentos,
+                observacoes, precisa_motorista, motorista_nome, motorista_telefone, status
             )
-            if evento:
+            
+            if st.session_state.editando:
                 cursor.execute("""
-                UPDATE eventos SET
+                    UPDATE eventos SET 
                     agenda_presidente=%s, titulo=%s, data=%s, hora_inicio=%s, hora_fim=%s,
                     local=%s, endereco=%s, cobertura=%s, responsaveis=%s, equipamentos=%s,
                     observacoes=%s, precisa_motorista=%s, motorista_nome=%s, motorista_telefone=%s, status=%s
-                WHERE id=%s
+                    WHERE id=%s
                 """, dados + (st.session_state.evento_id,))
+                st.success("Evento atualizado!")
+                st.session_state.editando = False
+                st.session_state.evento_id = None
             else:
                 cursor.execute("""
-                INSERT INTO eventos (
-                    agenda_presidente,titulo,data,hora_inicio,hora_fim,
-                    local,endereco,cobertura,responsaveis,equipamentos,
-                    observacoes,precisa_motorista,motorista_nome,motorista_telefone,status
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    INSERT INTO eventos (
+                        agenda_presidente, titulo, data, hora_inicio, hora_fim,
+                        local, endereco, cobertura, responsaveis, equipamentos,
+                        observacoes, precisa_motorista, motorista_nome, motorista_telefone, status
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """, dados)
+                st.success("Evento criado!")
+            
             conn.commit()
-            st.session_state.editando = False
-            st.session_state.evento_id = None
-            st.experimental_rerun()  # ✅ seguro aqui
+            st.rerun()
 
 # -----------------------------
-# ABA EVENTOS
+# ABA VISUALIZAR EVENTOS
 # -----------------------------
 with aba_eventos:
-    col_filtro, col_lista = st.columns([1,3])
-    with col_filtro:
-        st.subheader("🔍 Filtros")
-        filtro_data = st.date_input("📅 Data", value=None)
-        filtro_agenda = st.selectbox("📂 Agenda", ["Todas","Agenda do Presidente","Outras agendas"])
-        filtro_responsavel = st.text_input("👥 Responsável")
+    # Filtros simples
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        filtro_data = st.date_input("Filtrar por data", value=None)
+    with col_f2:
+        filtro_tipo = st.selectbox("Tipo", ["Todos", "Presidente", "Outros"])
 
-    cursor.execute("SELECT * FROM eventos ORDER BY data ASC, hora_inicio ASC, hora_fim ASC, agenda_presidente DESC")
+    query = "SELECT * FROM eventos WHERE 1=1"
+    params = []
+    if filtro_data:
+        query += " AND data = %s"
+        params.append(filtro_data)
+    if filtro_tipo == "Presidente":
+        query += " AND agenda_presidente = True"
+    elif filtro_tipo == "Outros":
+        query += " AND agenda_presidente = False"
+    
+    query += " ORDER BY data DESC, hora_inicio DESC"
+    cursor.execute(query, tuple(params))
     eventos = cursor.fetchall()
 
-    agora = datetime.now(timezone(timedelta(hours=-3))).replace(tzinfo=None)
-    hoje = agora.date()
-
     for ev in eventos:
-        eid, agenda_pres, titulo, data_ev, hi, hf, local, endereco, cobertura, resp, equip, obs, precisa_motor, nome_motor, tel_motor, status = ev
-
-        # --- Conversão segura ---
-        data_dt = data_ev if isinstance(data_ev, date) else datetime.strptime(str(data_ev), "%Y-%m-%d").date()
-
-        def safe_time_parse(h):
-            if isinstance(h, time):
-                return h
-            h_str = str(h)
-            for fmt in ("%H:%M:%S", "%H:%M"):
-                try:
-                    return datetime.strptime(h_str, fmt).time()
-                except ValueError:
-                    continue
-            return time(0,0)
-        
-        hi_dt = safe_time_parse(hi)
-        hf_dt = safe_time_parse(hf)
-        inicio_dt = datetime.combine(data_dt, hi_dt)
-        fim_dt = datetime.combine(data_dt, hf_dt)
-
-        # --- Regras visuais ---
-        cor_fundo = COR_FUNDO_PRESIDENTE if agenda_pres else COR_FUNDO_OUTRA
-        cor_fonte = COR_FONTE_PRESIDENTE if agenda_pres else COR_FONTE_OUTRA
-        borda = "none"
-        badge = ""
-        decoracao = "none"
-        opacidade = "1"
-
-        if status=="CANCELADO":
-            decoracao="line-through"
-            cor_fonte=COR_TEXTO_CANCELADO
-        if data_dt < hoje or (data_dt==hoje and agora>fim_dt):
-            cor_fundo = COR_FUNDO_PASSADO
-            cor_fonte = COR_TEXTO_CANCELADO
-            opacidade = OPACIDADE_PASSADO
-        elif data_dt==hoje:
-            badge = f"<span style='padding:2px 6px;border-radius:5px;font-weight:bold;background:{COR_BADGE_HOJE};color:#000;'>HOJE</span>"
-            borda = f"3px solid {COR_BORDA_HOJE}"
-            if inicio_dt <= agora <= fim_dt:
-                badge = f"<span style='padding:2px 6px;border-radius:5px;font-weight:bold;background:{COR_BADGE_AGORA};color:#fff;'>AGORA</span>"
-                borda = f"4px solid {COR_BORDA_AGORA}"
-
-        # --- Motorista ---
-        motorista_html = ""
-        if precisa_motor and tel_motor:
-            tel = tel_motor.replace(" ","").replace("-","").replace("(","").replace(")","")
-            motorista_html = f"🚗 {nome_motor} <a href='https://wa.me/{tel}' target='_blank'>{tel_motor}</a><br>"
-
-        # --- Filtros ---
-        if filtro_data and data_dt != filtro_data:
-            continue
-        if filtro_agenda=="Agenda do Presidente" and not agenda_pres:
-            continue
-        if filtro_agenda=="Outras agendas" and agenda_pres:
-            continue
-        if filtro_responsavel and filtro_responsavel.lower() not in (resp or "").lower():
-            continue
-
-        # --- Renderização do card ---
-        st.markdown(f"""
-        <div style="background:{cor_fundo};color:{cor_fonte};opacity:{opacidade};
-        padding:16px;border-radius:10px;margin-bottom:10px;
-        border:{borda};text-decoration:{decoracao};">
-        <h3>{'👑' if agenda_pres else '📌'} {titulo} {badge}</h3>
-        📅 {data_dt.strftime('%d/%m/%Y')} | ⏰ {hi_dt.strftime('%H:%M')} às {hf_dt.strftime('%H:%M')}<br>
-        📍 {local}<br>
-        🏠 {endereco}<br>
-        🎥 {cobertura}<br>
-        👥 {resp}<br>
-        🎒 {equip}<br>
-        {motorista_html}
-        📝 {obs}<br><br>
-        <b>Status:</b> {status}
-        </div>
-        """, unsafe_allow_html=True)
-
-        # --- Botões com funções seguras ---
-        def editar_evento(evento_id=eid):
-            st.session_state.editando=True
-            st.session_state.evento_id=evento_id
-            st.experimental_rerun()
-
-        def cancelar_reativar_evento(evento_id=eid, status_atual=status):
-            novo_status = "CANCELADO" if status_atual=="ATIVO" else "ATIVO"
-            cursor.execute("UPDATE eventos SET status=%s WHERE id=%s",(novo_status,evento_id))
-            conn.commit()
-            st.experimental_rerun()
-
-        def apagar_evento(evento_id=eid):
-            cursor.execute("DELETE FROM eventos WHERE id=%s",(evento_id,))
-            conn.commit()
-            st.experimental_rerun()
-
-        c1, c2, c3 = st.columns(3)
-        c1.button("✏️ Editar", key=f"edit{eid}", on_click=editar_evento)
-        c2.button("❌ Cancelar/Reativar", key=f"cancel{eid}", on_click=cancelar_reativar_evento)
-        c3.button("🗑 Apagar", key=f"del{eid}", on_click=apagar_evento)
+        with st.expander(f"{'👑' if ev[1] else '📅'} {ev[3]} | {ev[2]} ({ev[15]})"):
+            st.write(f"**Local:** {ev[6]} - {ev[7]}")
+            st.write(f"**Horário:** {ev[4]} às {ev[5]}")
+            st.write(f"**Responsáveis:** {ev[9]}")
+            
+            c1, c2, c3 = st.columns(3)
+            if c1.button("Editar", key=f"ed_{ev[0]}"):
+                st.session_state.editando = True
+                st.session_state.evento_id = ev[0]
+                st.rerun()
+            
+            status_acao = "CANCELADO" if ev[15] == "ATIVO" else "ATIVO"
+            if c2.button(f"{status_acao}", key=f"st_{ev[0]}"):
+                cursor.execute("UPDATE eventos SET status=%s WHERE id=%s", (status_acao, ev[0]))
+                conn.commit()
+                st.rerun()
+                
+            if c3.button("Excluir", key=f"del_{ev[0]}"):
+                cursor.execute("DELETE FROM eventos WHERE id=%s", (ev[0],))
+                conn.commit()
+                st.rerun()
