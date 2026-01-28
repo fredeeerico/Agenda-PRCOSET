@@ -1,5 +1,5 @@
 # app.py - Agenda PRCOSET Streamlit
-# -----------------------------
+# ----------------------------------
 # Funcionalidade completa:
 # - Supabase/PostgreSQL
 # - 10 eventos de teste automáticos
@@ -8,14 +8,14 @@
 # - Botões Editar, Cancelar/Reativar e Apagar sem erro
 # - Conversão segura de datas e horas
 # - Seção de cores configurável
-# -----------------------------
+# ----------------------------------
 
 import streamlit as st
 import psycopg2
 from datetime import datetime, date, time, timedelta, timezone
 
 # -----------------------------
-# CONFIGURAÇÃO DE CORES (alterar aqui)
+# CONFIGURAÇÃO DE CORES
 # -----------------------------
 COR_FUNDO_PRESIDENTE = "#2b488e"
 COR_FUNDO_OUTRA = "#109439"
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS eventos (
 conn.commit()
 
 # -----------------------------
-# INSERIR 10 EVENTOS DE TESTE (SE TABELA VAZIA)
+# INSERIR 10 EVENTOS DE TESTE
 # -----------------------------
 cursor.execute("SELECT COUNT(*) FROM eventos")
 if cursor.fetchone()[0] == 0:
@@ -79,19 +79,14 @@ if cursor.fetchone()[0] == 0:
     proxima_semana = hoje + timedelta(days=7)
 
     eventos_teste = [
-        # Ontem
         (True, "Reunião Estratégica", ontem, time(9,0), time(10,0), "Prefeitura", "Sala 1", "Redes, Foto", "Fred", "Câmera", "Obs", False, "", "", "ATIVO"),
         (False, "Visita Técnica", ontem, time(14,0), time(15,0), "Obra Central", "Endereço X", "Vídeo", "Ana", "Drone", "Obs", True, "Carlos", "11999999999", "ATIVO"),
-        # Semana passada
         (True, "Coletiva de Imprensa", semana_passada, time(10,0), time(11,0), "Auditório", "Centro", "Imprensa", "Thais", "Microfone", "Obs", False, "", "", "CANCELADO"),
         (False, "Evento Comunitário", semana_passada, time(16,0), time(18,0), "Praça", "Bairro Y", "Foto", "Fred, Ana", "Câmera", "Obs", False, "", "", "ATIVO"),
-        # Hoje
         (True, "Reunião com Secretários", hoje, time(8,0), time(9,30), "Gabinete", "Prefeitura", "Redes", "Fred, Thais", "Notebook", "Obs", True, "João", "11988888888", "ATIVO"),
         (False, "Entrega de Obras", hoje, time(11,0), time(12,0), "Obra Z", "Endereço Z", "Vídeo, Foto", "Ana", "Drone", "Obs", False, "", "", "ATIVO"),
-        # Amanhã
         (True, "Agenda Oficial", amanha, time(9,0), time(10,0), "Gabinete", "Prefeitura", "Redes", "Fred", "Câmera", "Obs", False, "", "", "ATIVO"),
         (False, "Reunião Planejamento", amanha, time(15,0), time(16,0), "Sala 3", "Prefeitura", "Foto", "Thais", "Tripé", "Obs", False, "", "", "ATIVO"),
-        # Próxima semana
         (True, "Evento Regional", proxima_semana, time(10,0), time(12,0), "Centro Eventos", "Centro", "Imprensa", "Fred, Ana, Thais", "Kit completo", "Obs", True, "Marcos", "11977777777", "ATIVO"),
         (False, "Visita Escolar", proxima_semana, time(14,0), time(15,30), "Escola ABC", "Bairro W", "Foto", "Ana", "Câmera", "Obs", False, "", "", "ATIVO"),
     ]
@@ -119,8 +114,6 @@ if "editando" not in st.session_state:
     st.session_state.editando = False
 if "evento_id" not in st.session_state:
     st.session_state.evento_id = None
-if "rerun" not in st.session_state:
-    st.session_state.rerun = False
 
 # -----------------------------
 # ABAS
@@ -167,7 +160,6 @@ with aba_form:
         status = st.selectbox("Status", ["ATIVO", "CANCELADO"],
                               index=0 if not evento or evento[15]=="ATIVO" else 1)
 
-        # --- Botão salvar ---
         if st.form_submit_button("💾 Salvar"):
             dados = (
                 1 if agenda_presidente else 0,
@@ -197,12 +189,7 @@ with aba_form:
             conn.commit()
             st.session_state.editando = False
             st.session_state.evento_id = None
-            st.session_state.rerun = True  # FLAG segura
-
-# --- Rerun seguro fora do form ---
-if st.session_state.get("rerun"):
-    st.session_state.rerun = False
-    st.experimental_rerun()
+            st.experimental_rerun()
 
 # -----------------------------
 # ABA EVENTOS
@@ -221,10 +208,12 @@ with aba_eventos:
     agora = datetime.now(timezone(timedelta(hours=-3))).replace(tzinfo=None)
     hoje = agora.date()
 
+    rerun_flag = False  # flag segura para rerun após loop
+
     for ev in eventos:
         eid, agenda_pres, titulo, data_ev, hi, hf, local, endereco, cobertura, resp, equip, obs, precisa_motor, nome_motor, tel_motor, status = ev
 
-        # --- CONVERSÃO SEGURA ---
+        # --- conversão segura de data/hora ---
         data_dt = data_ev if isinstance(data_ev, date) else datetime.strptime(str(data_ev), "%Y-%m-%d").date()
         def safe_time_parse(h):
             if isinstance(h, time):
@@ -241,7 +230,7 @@ with aba_eventos:
         inicio_dt = datetime.combine(data_dt, hi_dt)
         fim_dt = datetime.combine(data_dt, hf_dt)
 
-        # --- Regras visuais ---
+        # --- regras visuais ---
         cor_fundo = COR_FUNDO_PRESIDENTE if agenda_pres else COR_FUNDO_OUTRA
         cor_fonte = COR_FONTE_PRESIDENTE if agenda_pres else COR_FONTE_OUTRA
         borda = "none"
@@ -263,13 +252,13 @@ with aba_eventos:
                 badge = f"<span style='padding:2px 6px;border-radius:5px;font-weight:bold;background:{COR_BADGE_AGORA};color:#fff;'>AGORA</span>"
                 borda = f"4px solid {COR_BORDA_AGORA}"
 
-        # --- Motorista ---
+        # --- motorista ---
         motorista_html = ""
         if precisa_motor and tel_motor:
             tel = tel_motor.replace(" ","").replace("-","").replace("(","").replace(")","")
             motorista_html = f"🚗 {nome_motor} <a href='https://wa.me/{tel}' target='_blank'>{tel_motor}</a><br>"
 
-        # --- Filtros ---
+        # --- filtros ---
         if filtro_data and data_dt != filtro_data:
             continue
         if filtro_agenda=="Agenda do Presidente" and not agenda_pres:
@@ -279,7 +268,7 @@ with aba_eventos:
         if filtro_responsavel and filtro_responsavel.lower() not in (resp or "").lower():
             continue
 
-        # --- Renderização do card ---
+        # --- renderização do card ---
         st.markdown(f"""
         <div style="background:{cor_fundo};color:{cor_fonte};opacity:{opacidade};
         padding:16px;border-radius:10px;margin-bottom:10px;
@@ -301,13 +290,17 @@ with aba_eventos:
         if c1.button("✏️ Editar", key=f"edit{eid}"):
             st.session_state.editando=True
             st.session_state.evento_id=eid
-            st.experimental_rerun()
+            rerun_flag = True
         if c2.button("❌ Cancelar/Reativar", key=f"cancel{eid}"):
             novo_status = "CANCELADO" if status=="ATIVO" else "ATIVO"
             cursor.execute("UPDATE eventos SET status=%s WHERE id=%s",(novo_status,eid))
             conn.commit()
-            st.experimental_rerun()
+            rerun_flag = True
         if c3.button("🗑 Apagar", key=f"del{eid}"):
             cursor.execute("DELETE FROM eventos WHERE id=%s",(eid,))
             conn.commit()
-            st.experimental_rerun()
+            rerun_flag = True
+
+    # --- Rerun seguro após loop ---
+    if rerun_flag:
+        st.experimental_rerun()
