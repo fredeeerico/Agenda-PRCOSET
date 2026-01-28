@@ -3,9 +3,9 @@ import streamlit as st
 import psycopg2
 from datetime import datetime, date, time, timedelta, timezone
 
-# -----------------------------
-# Conexão com Supabase (PostgreSQL)
-# -----------------------------
+# ==============================
+# CONEXÃO COM SUPABASE (POSTGRESQL)
+# ==============================
 conn = psycopg2.connect(
     host=st.secrets["DB_HOST"],
     database=st.secrets["DB_NAME"],
@@ -16,9 +16,9 @@ conn = psycopg2.connect(
 )
 cursor = conn.cursor()
 
-# -----------------------------
-# Criar tabela se não existir
-# -----------------------------
+# ==============================
+# CRIAR TABELA SE NÃO EXISTIR
+# ==============================
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS eventos (
     id SERIAL PRIMARY KEY,
@@ -41,12 +41,11 @@ CREATE TABLE IF NOT EXISTS eventos (
 """)
 conn.commit()
 
-# -----------------------------
-# Criar 10 eventos de teste, se tabela vazia
-# -----------------------------
+# ==============================
+# INSERIR 10 EVENTOS DE TESTE SE TABELA VAZIA
+# ==============================
 cursor.execute("SELECT COUNT(*) FROM eventos")
 if cursor.fetchone()[0] == 0:
-    # Datas relativas
     agora = datetime.now(timezone(timedelta(hours=-3)))
     hoje = agora.date()
     ontem = hoje - timedelta(days=1)
@@ -82,27 +81,27 @@ if cursor.fetchone()[0] == 0:
         """, ev)
     conn.commit()
 
-# -----------------------------
-# Configuração da página
-# -----------------------------
+# ==============================
+# CONFIGURAÇÃO STREAMLIT
+# ==============================
 st.set_page_config(page_title="Agenda PRCOSET", page_icon="📅", layout="centered")
 st.title("📅 Agenda PRCOSET")
 
-# -----------------------------
-# Estado global
-# -----------------------------
+# ==============================
+# ESTADO GLOBAL
+# ==============================
 if "editando" not in st.session_state:
     st.session_state.editando=False
 if "evento_id" not in st.session_state:
     st.session_state.evento_id=None
 
-# -----------------------------
-# Abas
-# -----------------------------
+# ==============================
+# ABAS
+# ==============================
 aba_eventos, aba_form = st.tabs(["📋 Eventos","📝 Novo Evento"])
 
 # =====================================================
-# 📝 Aba Novo Evento
+# 📝 ABA NOVO EVENTO
 # =====================================================
 with aba_form:
     evento = None
@@ -175,10 +174,10 @@ with aba_form:
             st.experimental_rerun()
 
 # =====================================================
-# 📋 Aba Eventos
+# 📋 ABA EVENTOS
 # =====================================================
 with aba_eventos:
-    col_filtro, col_lista = st.columns([1,3])
+    col_filtro,col_lista = st.columns([1,3])
     with col_filtro:
         st.subheader("🔍 Filtros")
         filtro_data = st.date_input("📅 Data", value=None)
@@ -194,16 +193,16 @@ with aba_eventos:
     for ev in eventos:
         id_ev, agenda_presidente, titulo, data_ev, hi, hf, local, endereco, cobertura, resp, equip, obs, precisa_m, mot_nome, mot_tel, status = ev
 
-        # Garantir que data e hora sejam tipos corretos
+        # Conversão de hora
         if isinstance(data_ev,str):
-            data_ev = datetime.strptime(data_ev,"%Y-%m-%d").date()
+            data_ev=datetime.strptime(data_ev,"%Y-%m-%d").date()
         if isinstance(hi,str):
-            hi = datetime.strptime(hi,"%H:%M:%S").time() if len(hi.split(":"))==3 else datetime.strptime(hi,"%H:%M").time()
+            hi=datetime.strptime(hi,"%H:%M:%S").time() if len(hi.split(":"))==3 else datetime.strptime(hi,"%H:%M").time()
         if isinstance(hf,str):
-            hf = datetime.strptime(hf,"%H:%M:%S").time() if len(hf.split(":"))==3 else datetime.strptime(hf,"%H:%M").time()
+            hf=datetime.strptime(hf,"%H:%M:%S").time() if len(hf.split(":"))==3 else datetime.strptime(hf,"%H:%M").time()
 
-        inicio_dt = datetime.combine(data_ev, hi)
-        fim_dt = datetime.combine(data_ev, hf)
+        inicio_dt = datetime.combine(data_ev,hi)
+        fim_dt = datetime.combine(data_ev,hf)
 
         # Aplicar filtros
         if filtro_data and data_ev!=filtro_data:
@@ -215,9 +214,9 @@ with aba_eventos:
         if filtro_responsavel and filtro_responsavel.lower() not in (resp or "").lower():
             continue
 
-        # Definir cores e estilos pixel-perfect
-        cor_fundo = "#2b488e" if agenda_presidente else "#109439"
-        cor_fonte = "#fff" if agenda_presidente else "#0f1116"
+        # Estilos pixel-perfect
+        cor_fundo="#2b488e" if agenda_presidente else "#109439"
+        cor_fonte="#fff" if agenda_presidente else "#0f1116"
         opacidade="1"; borda="none"; decoracao="none"; badge=""
 
         if status=="CANCELADO":
@@ -234,7 +233,7 @@ with aba_eventos:
         # Motorista com link WhatsApp
         motorista_html=""
         if precisa_m and mot_tel:
-            tel = mot_tel.replace(" ","").replace("-","").replace("(","").replace(")","")
+            tel=mot_tel.replace(" ","").replace("-","").replace("(","").replace(")","")
             motorista_html=f"🚗 {mot_nome} <a href='https://wa.me/{tel}' target='_blank'>{mot_tel}</a><br>"
 
         # Renderizar card
@@ -264,8 +263,8 @@ with aba_eventos:
             conn.commit()
             st.experimental_rerun()
 
-# -----------------------------
+# ==============================
 # Execução
-# -----------------------------
+# ==============================
 # pip install streamlit psycopg2
 # streamlit run app.py
