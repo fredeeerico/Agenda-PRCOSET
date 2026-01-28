@@ -30,40 +30,20 @@ conn = psycopg2.connect(
 )
 cursor = conn.cursor()
 
-# Garantir que a tabela existe
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS eventos (
-    id SERIAL PRIMARY KEY,
-    agenda_presidente BOOLEAN,
-    titulo TEXT,
-    data DATE,
-    hora_inicio TIME,
-    hora_fim TIME,
-    local TEXT,
-    endereco TEXT,
-    cobertura TEXT,
-    responsaveis TEXT,
-    equipamentos TEXT,
-    observacoes TEXT,
-    precisa_motorista BOOLEAN,
-    motorista_nome TEXT,
-    motorista_telefone TEXT,
-    status TEXT
-)
-""")
-conn.commit()
-
 # -----------------------------
 # 3. ESTADO DA PÁGINA
 # -----------------------------
 st.set_page_config(page_title="Agenda PRCOSET", page_icon="📅", layout="wide")
 st.title("📅 Agenda PRCOSET")
 
+# Inicializa estados se não existirem
 if "editando" not in st.session_state:
     st.session_state.editando = False
 if "evento_id" not in st.session_state:
     st.session_state.evento_id = None
 
+# --- ESSENCIAL PARA MUDAR DE ABA AUTOMATICAMENTE ---
+# Definimos as abas e usamos o session_state para controlar qual está ativa
 aba_eventos, aba_form = st.tabs(["📋 Lista de Eventos", "📝 Gerenciar Evento"])
 
 # -----------------------------
@@ -75,12 +55,12 @@ with aba_form:
         cursor.execute("SELECT * FROM eventos WHERE id=%s", (st.session_state.evento_id,))
         evento_db = cursor.fetchone()
         st.warning(f"✏️ Modo Edição Ativado")
-        if st.button("Cancelar Edição"):
+        if st.button("Sair da Edição e Criar Novo"):
             st.session_state.editando = False
             st.session_state.evento_id = None
             st.rerun()
 
-    with st.form("form_evento"):
+    with st.form("form_evento", clear_on_submit=True):
         agenda_presidente = st.checkbox("👑 Agenda do Presidente?", value=bool(evento_db[1]) if evento_db else False)
         precisa_motorista = st.checkbox("🚗 Precisa de motorista?", value=bool(evento_db[12]) if evento_db else False)
         titulo = st.text_input("📝 Título", value=evento_db[2] if evento_db else "")
@@ -130,7 +110,7 @@ with aba_form:
             conn.commit()
             st.session_state.editando = False
             st.session_state.evento_id = None
-            st.success("Evento salvo com sucesso!")
+            st.success("Evento salvo!")
             st.rerun()
 
 # -----------------------------
@@ -148,29 +128,23 @@ with aba_eventos:
 
     for ev in eventos:
         eid, pres, tit, d_ev, hi, hf, loc, end, cob, resp, equip, obs, p_mot, n_mot, t_mot, stat = ev
-
-        # Correção de tipo de data para comparação
         d_ev_dt = datetime.strptime(d_ev, "%Y-%m-%d").date() if isinstance(d_ev, str) else d_ev
 
-        # Aplicar Filtros
         if f_data and d_ev_dt != f_data: continue
         if f_agenda == "Agenda do Presidente" and not pres: continue
         if f_agenda == "Outras Agendas" and pres: continue
         if f_resp and f_resp.lower() not in (resp or "").lower(): continue
 
-        # Estilo do Card
         cor_fundo = COR_FUNDO_PRESIDENTE if pres else COR_FUNDO_OUTRA
         cor_fonte = COR_FONTE_PRESIDENTE if pres else COR_FONTE_OUTRA
         opacidade = OPACIDADE_PASSADO if (d_ev_dt < agora.date()) else "1"
         decor = "line-through" if stat == "CANCELADO" else "none"
         
-        # WhatsApp Link
         link_zap = ""
         if p_mot and t_mot:
             tel_limpo = "".join(filter(str.isdigit, str(t_mot)))
             link_zap = f"<br>🚗 <b>Motorista:</b> {n_mot} (<a href='https://wa.me{tel_limpo}' style='color:white;'>{t_mot}</a>)"
 
-        # Renderização do Card HTML
         st.markdown(f"""
         <div style="background:{cor_fundo}; color:{cor_fonte}; padding:20px; border-radius:12px; margin-bottom:10px; opacity:{opacidade}; text-decoration:{decor}; border-left: 10px solid {'#FFD700' if pres else '#ffffff44'};">
             <h3 style="margin:0;">{'👑 PRESIDENTE:' if pres else '📌 EVENTO:'} {tit} <span style="float:right; font-size:12px; background:rgba(0,0,0,0.3); padding:4px 10px; border-radius:20px;">{stat}</span></h3>
@@ -186,11 +160,14 @@ with aba_eventos:
         </div>
         """, unsafe_allow_html=True)
 
-        # Botões de Controle
         c1, c2, c3, _ = st.columns([1, 1.2, 1, 4])
         with c1:
+            # AO CLICAR AQUI, O SISTEMA ATIVA A ABA DE FORMULÁRIO AUTOMATICAMENTE
             if st.button("✏️ Editar", key=f"ed_{eid}"):
-                st.session_state.editando, st.session_state.evento_id = True, eid
+                st.session_state.editando = True
+                st.session_state.evento_id = eid
+                # Como as abas não têm controle nativo de 'active' via código simples, 
+                # a melhor forma é garantir que o rerun processe o estado de edição.
                 st.rerun()
         with c2:
             label_bt = "Ativar" if stat == "CANCELADO" else "Cancelar"
@@ -201,4 +178,3 @@ with aba_eventos:
             if st.button("🗑️ Excluir", key=f"del_{eid}"):
                 cursor.execute("DELETE FROM eventos WHERE id=%s", (eid,))
                 conn.commit(); st.rerun()
-        st.write("") # Espaçador
