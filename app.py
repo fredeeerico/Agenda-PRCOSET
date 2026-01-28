@@ -119,17 +119,29 @@ if "editando" not in st.session_state:
     st.session_state.editando = False
 if "evento_id" not in st.session_state:
     st.session_state.evento_id = None
-if "refresh" not in st.session_state:
-    st.session_state.refresh = False
+
+# -----------------------------
+# Função de conversão segura de hora
+# -----------------------------
+def safe_time_parse(h):
+    if isinstance(h, time):
+        return h
+    h_str = str(h)
+    for fmt in ("%H:%M:%S", "%H:%M"):
+        try:
+            return datetime.strptime(h_str, fmt).time()
+        except ValueError:
+            continue
+    return time(0,0)
 
 # -----------------------------
 # ABAS
 # -----------------------------
 aba_eventos, aba_form = st.tabs(["📋 Eventos", "📝 Novo Evento"])
 
-# -----------------------------
-# ABA NOVO EVENTO
-# -----------------------------
+# =============================
+# 📝 ABA NOVO EVENTO
+# =============================
 with aba_form:
     evento = None
     if st.session_state.editando and st.session_state.evento_id:
@@ -196,11 +208,11 @@ with aba_form:
             conn.commit()
             st.session_state.editando = False
             st.session_state.evento_id = None
-            st.session_state.refresh = True  # flag segura para atualizar a aba
+            st.experimental_rerun()
 
-# -----------------------------
-# ABA EVENTOS
-# -----------------------------
+# =============================
+# 📋 ABA EVENTOS
+# =============================
 with aba_eventos:
     col_filtro, col_lista = st.columns([1,3])
     with col_filtro:
@@ -220,9 +232,8 @@ with aba_eventos:
 
         # --- Conversão segura ---
         data_dt = data_ev if isinstance(data_ev, date) else datetime.strptime(str(data_ev), "%Y-%m-%d").date()
-        hi_dt = hi if isinstance(hi, time) else datetime.strptime(str(hi), "%H:%M:%S").time()
-        hf_dt = hf if isinstance(hf, time) else datetime.strptime(str(hf), "%H:%M:%S").time()
-
+        hi_dt = safe_time_parse(hi)
+        hf_dt = safe_time_parse(hf)
         inicio_dt = datetime.combine(data_dt, hi_dt)
         fim_dt = datetime.combine(data_dt, hf_dt)
 
@@ -282,25 +293,17 @@ with aba_eventos:
         </div>
         """, unsafe_allow_html=True)
 
-        # --- Botões sem quebrar aba Novo Evento ---
-        col1, col2, col3 = st.columns(3)
-        if col1.button("✏️ Editar", key=f"edit{eid}"):
+        c1,c2,c3 = st.columns(3)
+        if c1.button("✏️ Editar", key=f"edit{eid}"):
             st.session_state.editando=True
             st.session_state.evento_id=eid
-            st.session_state.refresh=True
-        if col2.button("❌ Cancelar/Reativar", key=f"cancel{eid}"):
+            st.experimental_rerun()
+        if c2.button("❌ Cancelar/Reativar", key=f"cancel{eid}"):
             novo_status = "CANCELADO" if status=="ATIVO" else "ATIVO"
             cursor.execute("UPDATE eventos SET status=%s WHERE id=%s",(novo_status,eid))
             conn.commit()
-            st.session_state.refresh=True
-        if col3.button("🗑 Apagar", key=f"del{eid}"):
+            st.experimental_rerun()
+        if c3.button("🗑 Apagar", key=f"del{eid}"):
             cursor.execute("DELETE FROM eventos WHERE id=%s",(eid,))
             conn.commit()
-            st.session_state.refresh=True
-
-# -----------------------------
-# Atualizar a página se necessário
-# -----------------------------
-if st.session_state.refresh:
-    st.session_state.refresh=False
-    st.experimental_rerun()
+            st.experimental_rerun()
