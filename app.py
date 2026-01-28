@@ -29,6 +29,7 @@ conn = psycopg2.connect(
     user=st.secrets["DB_USER"],
     password=st.secrets["DB_PASSWORD"],
     port=st.secrets["DB_PORT"],
+    sslmode=st.secrets["DB_SSLMODE"],
 )
 cursor = conn.cursor()
 
@@ -197,3 +198,4 @@ with aba_eventos:
         <b>Status:</b> {status}
         </div>
         """, unsafe_allow_html=True)
+
