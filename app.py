@@ -1,15 +1,14 @@
 # app.py - Agenda PRCOSET Streamlit
-# ---------------------------------
+# -----------------------------
 # Funcionalidade completa:
 # - Supabase/PostgreSQL
 # - 10 eventos de teste automáticos
 # - Cards pixel-perfect
 # - Filtros por data, agenda e responsável
-# - Botões Editar, Cancelar/Reativar e Apagar sem erro
-# - Novo Evento seguro
+# - Botões Editar, Cancelar/Reativar e Apagar seguros
 # - Conversão segura de datas e horas
 # - Seção de cores configurável
-# ---------------------------------
+# -----------------------------
 
 import streamlit as st
 import psycopg2
@@ -80,14 +79,19 @@ if cursor.fetchone()[0] == 0:
     proxima_semana = hoje + timedelta(days=7)
 
     eventos_teste = [
+        # Ontem
         (True, "Reunião Estratégica", ontem, time(9,0), time(10,0), "Prefeitura", "Sala 1", "Redes, Foto", "Fred", "Câmera", "Obs", False, "", "", "ATIVO"),
         (False, "Visita Técnica", ontem, time(14,0), time(15,0), "Obra Central", "Endereço X", "Vídeo", "Ana", "Drone", "Obs", True, "Carlos", "11999999999", "ATIVO"),
+        # Semana passada
         (True, "Coletiva de Imprensa", semana_passada, time(10,0), time(11,0), "Auditório", "Centro", "Imprensa", "Thais", "Microfone", "Obs", False, "", "", "CANCELADO"),
         (False, "Evento Comunitário", semana_passada, time(16,0), time(18,0), "Praça", "Bairro Y", "Foto", "Fred, Ana", "Câmera", "Obs", False, "", "", "ATIVO"),
+        # Hoje
         (True, "Reunião com Secretários", hoje, time(8,0), time(9,30), "Gabinete", "Prefeitura", "Redes", "Fred, Thais", "Notebook", "Obs", True, "João", "11988888888", "ATIVO"),
         (False, "Entrega de Obras", hoje, time(11,0), time(12,0), "Obra Z", "Endereço Z", "Vídeo, Foto", "Ana", "Drone", "Obs", False, "", "", "ATIVO"),
+        # Amanhã
         (True, "Agenda Oficial", amanha, time(9,0), time(10,0), "Gabinete", "Prefeitura", "Redes", "Fred", "Câmera", "Obs", False, "", "", "ATIVO"),
         (False, "Reunião Planejamento", amanha, time(15,0), time(16,0), "Sala 3", "Prefeitura", "Foto", "Thais", "Tripé", "Obs", False, "", "", "ATIVO"),
+        # Próxima semana
         (True, "Evento Regional", proxima_semana, time(10,0), time(12,0), "Centro Eventos", "Centro", "Imprensa", "Fred, Ana, Thais", "Kit completo", "Obs", True, "Marcos", "11977777777", "ATIVO"),
         (False, "Visita Escolar", proxima_semana, time(14,0), time(15,30), "Escola ABC", "Bairro W", "Foto", "Ana", "Câmera", "Obs", False, "", "", "ATIVO"),
     ]
@@ -115,6 +119,8 @@ if "editando" not in st.session_state:
     st.session_state.editando = False
 if "evento_id" not in st.session_state:
     st.session_state.evento_id = None
+if "reload" not in st.session_state:
+    st.session_state.reload = False  # flag segura para rerun
 
 # -----------------------------
 # ABAS
@@ -122,7 +128,7 @@ if "evento_id" not in st.session_state:
 aba_eventos, aba_form = st.tabs(["📋 Eventos", "📝 Novo Evento"])
 
 # -----------------------------
-# ABA NOVO EVENTO (form seguro)
+# ABA NOVO EVENTO
 # -----------------------------
 with aba_form:
     evento = None
@@ -130,8 +136,6 @@ with aba_form:
         cursor.execute("SELECT * FROM eventos WHERE id=%s", (st.session_state.evento_id,))
         evento = cursor.fetchone()
         st.warning("✏️ Você está editando um evento já existente.")
-
-    rerun_flag_form = False  # flag para rerun seguro
 
     with st.form("form_evento"):
         agenda_presidente = st.checkbox("👑 Agenda do Presidente?", value=bool(evento[1]) if evento else False)
@@ -163,8 +167,7 @@ with aba_form:
         status = st.selectbox("Status", ["ATIVO", "CANCELADO"],
                               index=0 if not evento or evento[15]=="ATIVO" else 1)
 
-        submit = st.form_submit_button("💾 Salvar")
-        if submit:
+        if st.form_submit_button("💾 Salvar"):
             dados = (
                 1 if agenda_presidente else 0,
                 titulo, data_evento,
@@ -193,15 +196,16 @@ with aba_form:
             conn.commit()
             st.session_state.editando = False
             st.session_state.evento_id = None
-            rerun_flag_form = True
-
-    if rerun_flag_form:
-        st.experimental_rerun()
+            st.session_state.reload = True  # set flag para rerun
 
 # -----------------------------
-# ABA EVENTOS (com cards)
+# ABA EVENTOS
 # -----------------------------
 with aba_eventos:
+    if st.session_state.reload:
+        st.session_state.reload = False
+        st.experimental_rerun()  # rerun seguro fora de loop/form
+
     col_filtro, col_lista = st.columns([1,3])
     with col_filtro:
         st.subheader("🔍 Filtros")
@@ -224,16 +228,14 @@ with aba_eventos:
             if isinstance(h, time):
                 return h
             h_str = str(h)
-            for fmt in ("%H:%M:%S", "%H:%M"):
+            for fmt in ("%H:%M:%S","%H:%M"):
                 try:
                     return datetime.strptime(h_str, fmt).time()
                 except ValueError:
                     continue
             return time(0,0)
-        
         hi_dt = safe_time_parse(hi)
         hf_dt = safe_time_parse(hf)
-        
         inicio_dt = datetime.combine(data_dt, hi_dt)
         fim_dt = datetime.combine(data_dt, hf_dt)
 
@@ -293,17 +295,18 @@ with aba_eventos:
         </div>
         """, unsafe_allow_html=True)
 
+        # --- Botões seguros ---
         c1,c2,c3 = st.columns(3)
         if c1.button("✏️ Editar", key=f"edit{eid}"):
             st.session_state.editando=True
             st.session_state.evento_id=eid
-            st.experimental_rerun()
+            st.session_state.reload=True
         if c2.button("❌ Cancelar/Reativar", key=f"cancel{eid}"):
             novo_status = "CANCELADO" if status=="ATIVO" else "ATIVO"
             cursor.execute("UPDATE eventos SET status=%s WHERE id=%s",(novo_status,eid))
             conn.commit()
-            st.experimental_rerun()
+            st.session_state.reload=True
         if c3.button("🗑 Apagar", key=f"del{eid}"):
             cursor.execute("DELETE FROM eventos WHERE id=%s",(eid,))
             conn.commit()
-            st.experimental_rerun()
+            st.session_state.reload=True
