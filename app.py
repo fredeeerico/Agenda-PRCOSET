@@ -119,15 +119,17 @@ if "editando" not in st.session_state:
     st.session_state.editando = False
 if "evento_id" not in st.session_state:
     st.session_state.evento_id = None
+if "rerun" not in st.session_state:
+    st.session_state.rerun = False
 
 # -----------------------------
 # ABAS
 # -----------------------------
 aba_eventos, aba_form = st.tabs(["📋 Eventos", "📝 Novo Evento"])
 
-# =========================
+# -----------------------------
 # ABA NOVO EVENTO
-# =========================
+# -----------------------------
 with aba_form:
     evento = None
     if st.session_state.editando and st.session_state.evento_id:
@@ -165,6 +167,7 @@ with aba_form:
         status = st.selectbox("Status", ["ATIVO", "CANCELADO"],
                               index=0 if not evento or evento[15]=="ATIVO" else 1)
 
+        # --- Botão salvar ---
         if st.form_submit_button("💾 Salvar"):
             dados = (
                 1 if agenda_presidente else 0,
@@ -194,11 +197,16 @@ with aba_form:
             conn.commit()
             st.session_state.editando = False
             st.session_state.evento_id = None
-            st.experimental_rerun()
+            st.session_state.rerun = True  # FLAG segura
 
-# =========================
+# --- Rerun seguro fora do form ---
+if st.session_state.get("rerun"):
+    st.session_state.rerun = False
+    st.experimental_rerun()
+
+# -----------------------------
 # ABA EVENTOS
-# =========================
+# -----------------------------
 with aba_eventos:
     col_filtro, col_lista = st.columns([1,3])
     with col_filtro:
@@ -213,14 +221,10 @@ with aba_eventos:
     agora = datetime.now(timezone(timedelta(hours=-3))).replace(tzinfo=None)
     hoje = agora.date()
 
-    # Dicionário para guardar ações de botões
-    acao = None
-    evento_alvo = None
-
     for ev in eventos:
         eid, agenda_pres, titulo, data_ev, hi, hf, local, endereco, cobertura, resp, equip, obs, precisa_motor, nome_motor, tel_motor, status = ev
 
-        # --- Conversão segura ---
+        # --- CONVERSÃO SEGURA ---
         data_dt = data_ev if isinstance(data_ev, date) else datetime.strptime(str(data_ev), "%Y-%m-%d").date()
         def safe_time_parse(h):
             if isinstance(h, time):
@@ -293,32 +297,17 @@ with aba_eventos:
         </div>
         """, unsafe_allow_html=True)
 
-        # --- Botões ---
         c1,c2,c3 = st.columns(3)
         if c1.button("✏️ Editar", key=f"edit{eid}"):
-            acao = "editar"
-            evento_alvo = eid
+            st.session_state.editando=True
+            st.session_state.evento_id=eid
+            st.experimental_rerun()
         if c2.button("❌ Cancelar/Reativar", key=f"cancel{eid}"):
-            acao = "cancelar"
-            evento_alvo = eid
+            novo_status = "CANCELADO" if status=="ATIVO" else "ATIVO"
+            cursor.execute("UPDATE eventos SET status=%s WHERE id=%s",(novo_status,eid))
+            conn.commit()
+            st.experimental_rerun()
         if c3.button("🗑 Apagar", key=f"del{eid}"):
-            acao = "apagar"
-            evento_alvo = eid
-
-    # -----------------------------
-    # Executar ação fora do loop
-    # -----------------------------
-    if acao and evento_alvo:
-        if acao == "editar":
-            st.session_state.editando = True
-            st.session_state.evento_id = evento_alvo
-        elif acao == "cancelar":
-            cursor.execute(
-                "UPDATE eventos SET status=CASE WHEN status='ATIVO' THEN 'CANCELADO' ELSE 'ATIVO' END WHERE id=%s",
-                (evento_alvo,)
-            )
+            cursor.execute("DELETE FROM eventos WHERE id=%s",(eid,))
             conn.commit()
-        elif acao == "apagar":
-            cursor.execute("DELETE FROM eventos WHERE id=%s", (evento_alvo,))
-            conn.commit()
-        st.experimental_rerun()
+            st.experimental_rerun()
