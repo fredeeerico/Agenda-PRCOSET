@@ -219,10 +219,25 @@ with aba_eventos:
 
         # --- CONVERSÃO SEGURA ---
         data_dt = data_ev if isinstance(data_ev, date) else datetime.strptime(str(data_ev), "%Y-%m-%d").date()
-        hi_dt = hi if isinstance(hi, time) else datetime.strptime(str(hi), "%H:%M:%S").time()
-        hf_dt = hf if isinstance(hf, time) else datetime.strptime(str(hf), "%H:%M:%S").time()
+        # --- Conversão segura de horas ---
+        def safe_time_parse(h):
+            if isinstance(h, time):
+                return h
+            h_str = str(h)
+            for fmt in ("%H:%M:%S", "%H:%M"):
+                try:
+                    return datetime.strptime(h_str, fmt).time()
+                except ValueError:
+                    continue
+            # fallback
+            return time(0,0)
+        
+        hi_dt = safe_time_parse(hi)
+        hf_dt = safe_time_parse(hf)
+        
         inicio_dt = datetime.combine(data_dt, hi_dt)
         fim_dt = datetime.combine(data_dt, hf_dt)
+
 
         # --- Regras visuais ---
         cor_fundo = COR_FUNDO_PRESIDENTE if agenda_pres else COR_FUNDO_OUTRA
@@ -294,3 +309,4 @@ with aba_eventos:
             cursor.execute("DELETE FROM eventos WHERE id=%s",(eid,))
             conn.commit()
             st.experimental_rerun()
+
