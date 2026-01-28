@@ -31,7 +31,11 @@ conn = psycopg2.connect(
     port=st.secrets["DB_PORT"],
     sslmode=st.secrets["DB_SSLMODE"],
 )
+
+st.success("Conectado ao banco com sucesso!")
+
 cursor = conn.cursor()
+
 
 # -----------------------------
 # ESTADO GLOBAL
@@ -198,4 +202,5 @@ with aba_eventos:
         <b>Status:</b> {status}
         </div>
         """, unsafe_allow_html=True)
+
 
