@@ -5,7 +5,7 @@
 # - 10 eventos de teste automáticos
 # - Cards pixel-perfect
 # - Filtros por data, agenda e responsável
-# - Botões Editar, Cancelar/Reativar e Apagar sem erro
+# - Botões Editar, Cancelar/Reativar e Apagar
 # - Conversão segura de datas e horas
 # - Seção de cores configurável
 # -----------------------------
@@ -79,19 +79,14 @@ if cursor.fetchone()[0] == 0:
     proxima_semana = hoje + timedelta(days=7)
 
     eventos_teste = [
-        # Ontem
         (True, "Reunião Estratégica", ontem, time(9,0), time(10,0), "Prefeitura", "Sala 1", "Redes, Foto", "Fred", "Câmera", "Obs", False, "", "", "ATIVO"),
         (False, "Visita Técnica", ontem, time(14,0), time(15,0), "Obra Central", "Endereço X", "Vídeo", "Ana", "Drone", "Obs", True, "Carlos", "11999999999", "ATIVO"),
-        # Semana passada
         (True, "Coletiva de Imprensa", semana_passada, time(10,0), time(11,0), "Auditório", "Centro", "Imprensa", "Thais", "Microfone", "Obs", False, "", "", "CANCELADO"),
         (False, "Evento Comunitário", semana_passada, time(16,0), time(18,0), "Praça", "Bairro Y", "Foto", "Fred, Ana", "Câmera", "Obs", False, "", "", "ATIVO"),
-        # Hoje
         (True, "Reunião com Secretários", hoje, time(8,0), time(9,30), "Gabinete", "Prefeitura", "Redes", "Fred, Thais", "Notebook", "Obs", True, "João", "11988888888", "ATIVO"),
         (False, "Entrega de Obras", hoje, time(11,0), time(12,0), "Obra Z", "Endereço Z", "Vídeo, Foto", "Ana", "Drone", "Obs", False, "", "", "ATIVO"),
-        # Amanhã
         (True, "Agenda Oficial", amanha, time(9,0), time(10,0), "Gabinete", "Prefeitura", "Redes", "Fred", "Câmera", "Obs", False, "", "", "ATIVO"),
         (False, "Reunião Planejamento", amanha, time(15,0), time(16,0), "Sala 3", "Prefeitura", "Foto", "Thais", "Tripé", "Obs", False, "", "", "ATIVO"),
-        # Próxima semana
         (True, "Evento Regional", proxima_semana, time(10,0), time(12,0), "Centro Eventos", "Centro", "Imprensa", "Fred, Ana, Thais", "Kit completo", "Obs", True, "Marcos", "11977777777", "ATIVO"),
         (False, "Visita Escolar", proxima_semana, time(14,0), time(15,30), "Escola ABC", "Bairro W", "Foto", "Ana", "Câmera", "Obs", False, "", "", "ATIVO"),
     ]
@@ -121,27 +116,13 @@ if "evento_id" not in st.session_state:
     st.session_state.evento_id = None
 
 # -----------------------------
-# Função de conversão segura de hora
-# -----------------------------
-def safe_time_parse(h):
-    if isinstance(h, time):
-        return h
-    h_str = str(h)
-    for fmt in ("%H:%M:%S", "%H:%M"):
-        try:
-            return datetime.strptime(h_str, fmt).time()
-        except ValueError:
-            continue
-    return time(0,0)
-
-# -----------------------------
 # ABAS
 # -----------------------------
 aba_eventos, aba_form = st.tabs(["📋 Eventos", "📝 Novo Evento"])
 
-# =============================
-# 📝 ABA NOVO EVENTO
-# =============================
+# -----------------------------
+# ABA NOVO EVENTO
+# -----------------------------
 with aba_form:
     evento = None
     if st.session_state.editando and st.session_state.evento_id:
@@ -206,13 +187,15 @@ with aba_form:
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """, dados)
             conn.commit()
+            # Atualização segura sem travar a aba
             st.session_state.editando = False
             st.session_state.evento_id = None
+            st.session_state["atualizar"] = not st.session_state.get("atualizar", False)
             st.experimental_rerun()
 
-# =============================
-# 📋 ABA EVENTOS
-# =============================
+# -----------------------------
+# ABA EVENTOS
+# -----------------------------
 with aba_eventos:
     col_filtro, col_lista = st.columns([1,3])
     with col_filtro:
@@ -230,10 +213,10 @@ with aba_eventos:
     for ev in eventos:
         eid, agenda_pres, titulo, data_ev, hi, hf, local, endereco, cobertura, resp, equip, obs, precisa_motor, nome_motor, tel_motor, status = ev
 
-        # --- Conversão segura ---
+        # --- CONVERSÃO SEGURA ---
         data_dt = data_ev if isinstance(data_ev, date) else datetime.strptime(str(data_ev), "%Y-%m-%d").date()
-        hi_dt = safe_time_parse(hi)
-        hf_dt = safe_time_parse(hf)
+        hi_dt = hi if isinstance(hi, time) else datetime.strptime(str(hi), "%H:%M:%S").time()
+        hf_dt = hf if isinstance(hf, time) else datetime.strptime(str(hf), "%H:%M:%S").time()
         inicio_dt = datetime.combine(data_dt, hi_dt)
         fim_dt = datetime.combine(data_dt, hf_dt)
 
@@ -293,17 +276,21 @@ with aba_eventos:
         </div>
         """, unsafe_allow_html=True)
 
-        c1,c2,c3 = st.columns(3)
-        if c1.button("✏️ Editar", key=f"edit{eid}"):
+        # --- Botões ---
+        col1, col2, col3 = st.columns(3)
+        if col1.button("✏️ Editar", key=f"edit{eid}"):
             st.session_state.editando=True
             st.session_state.evento_id=eid
+            st.session_state["atualizar"] = not st.session_state.get("atualizar", False)
             st.experimental_rerun()
-        if c2.button("❌ Cancelar/Reativar", key=f"cancel{eid}"):
+        if col2.button("❌ Cancelar/Reativar", key=f"cancel{eid}"):
             novo_status = "CANCELADO" if status=="ATIVO" else "ATIVO"
             cursor.execute("UPDATE eventos SET status=%s WHERE id=%s",(novo_status,eid))
             conn.commit()
+            st.session_state["atualizar"] = not st.session_state.get("atualizar", False)
             st.experimental_rerun()
-        if c3.button("🗑 Apagar", key=f"del{eid}"):
+        if col3.button("🗑 Apagar", key=f"del{eid}"):
             cursor.execute("DELETE FROM eventos WHERE id=%s",(eid,))
             conn.commit()
+            st.session_state["atualizar"] = not st.session_state.get("atualizar", False)
             st.experimental_rerun()
