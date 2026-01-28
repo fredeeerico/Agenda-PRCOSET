@@ -32,8 +32,6 @@ conn = psycopg2.connect(
     sslmode=st.secrets["DB_SSLMODE"],
 )
 
-st.success("Conectado ao banco com sucesso!")
-
 cursor = conn.cursor()
 
 
@@ -202,5 +200,6 @@ with aba_eventos:
         <b>Status:</b> {status}
         </div>
         """, unsafe_allow_html=True)
+
 
 
