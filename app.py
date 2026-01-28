@@ -15,7 +15,7 @@ import psycopg2
 from datetime import datetime, date, time, timedelta, timezone
 
 # -----------------------------
-# CONFIGURAÇÃO DE CORES
+# CONFIGURAÇÃO DE CORES (alterar aqui)
 # -----------------------------
 COR_FUNDO_PRESIDENTE = "#2b488e"
 COR_FUNDO_OUTRA = "#109439"
@@ -79,17 +79,23 @@ if cursor.fetchone()[0] == 0:
     proxima_semana = hoje + timedelta(days=7)
 
     eventos_teste = [
+        # Ontem
         (True, "Reunião Estratégica", ontem, time(9,0), time(10,0), "Prefeitura", "Sala 1", "Redes, Foto", "Fred", "Câmera", "Obs", False, "", "", "ATIVO"),
         (False, "Visita Técnica", ontem, time(14,0), time(15,0), "Obra Central", "Endereço X", "Vídeo", "Ana", "Drone", "Obs", True, "Carlos", "11999999999", "ATIVO"),
+        # Semana passada
         (True, "Coletiva de Imprensa", semana_passada, time(10,0), time(11,0), "Auditório", "Centro", "Imprensa", "Thais", "Microfone", "Obs", False, "", "", "CANCELADO"),
         (False, "Evento Comunitário", semana_passada, time(16,0), time(18,0), "Praça", "Bairro Y", "Foto", "Fred, Ana", "Câmera", "Obs", False, "", "", "ATIVO"),
+        # Hoje
         (True, "Reunião com Secretários", hoje, time(8,0), time(9,30), "Gabinete", "Prefeitura", "Redes", "Fred, Thais", "Notebook", "Obs", True, "João", "11988888888", "ATIVO"),
         (False, "Entrega de Obras", hoje, time(11,0), time(12,0), "Obra Z", "Endereço Z", "Vídeo, Foto", "Ana", "Drone", "Obs", False, "", "", "ATIVO"),
+        # Amanhã
         (True, "Agenda Oficial", amanha, time(9,0), time(10,0), "Gabinete", "Prefeitura", "Redes", "Fred", "Câmera", "Obs", False, "", "", "ATIVO"),
         (False, "Reunião Planejamento", amanha, time(15,0), time(16,0), "Sala 3", "Prefeitura", "Foto", "Thais", "Tripé", "Obs", False, "", "", "ATIVO"),
+        # Próxima semana
         (True, "Evento Regional", proxima_semana, time(10,0), time(12,0), "Centro Eventos", "Centro", "Imprensa", "Fred, Ana, Thais", "Kit completo", "Obs", True, "Marcos", "11977777777", "ATIVO"),
         (False, "Visita Escolar", proxima_semana, time(14,0), time(15,30), "Escola ABC", "Bairro W", "Foto", "Ana", "Câmera", "Obs", False, "", "", "ATIVO"),
     ]
+
     for ev in eventos_teste:
         cursor.execute("""
         INSERT INTO eventos (
@@ -119,9 +125,9 @@ if "evento_id" not in st.session_state:
 # -----------------------------
 aba_eventos, aba_form = st.tabs(["📋 Eventos", "📝 Novo Evento"])
 
-# -----------------------------
+# =========================
 # ABA NOVO EVENTO
-# -----------------------------
+# =========================
 with aba_form:
     evento = None
     if st.session_state.editando and st.session_state.evento_id:
@@ -188,12 +194,11 @@ with aba_form:
             conn.commit()
             st.session_state.editando = False
             st.session_state.evento_id = None
-            st.session_state.aba_ativa = "📋 Eventos"
             st.experimental_rerun()
 
-# -----------------------------
+# =========================
 # ABA EVENTOS
-# -----------------------------
+# =========================
 with aba_eventos:
     col_filtro, col_lista = st.columns([1,3])
     with col_filtro:
@@ -207,6 +212,10 @@ with aba_eventos:
 
     agora = datetime.now(timezone(timedelta(hours=-3))).replace(tzinfo=None)
     hoje = agora.date()
+
+    # Dicionário para guardar ações de botões
+    acao = None
+    evento_alvo = None
 
     for ev in eventos:
         eid, agenda_pres, titulo, data_ev, hi, hf, local, endereco, cobertura, resp, equip, obs, precisa_motor, nome_motor, tel_motor, status = ev
@@ -223,7 +232,6 @@ with aba_eventos:
                 except ValueError:
                     continue
             return time(0,0)
-        
         hi_dt = safe_time_parse(hi)
         hf_dt = safe_time_parse(hf)
         inicio_dt = datetime.combine(data_dt, hi_dt)
@@ -286,17 +294,31 @@ with aba_eventos:
         """, unsafe_allow_html=True)
 
         # --- Botões ---
-        col_b1,col_b2,col_b3 = st.columns(3)
-        if col_b1.button("✏️ Editar", key=f"edit{eid}"):
-            st.session_state.editando=True
-            st.session_state.evento_id=eid
-            st.experimental_rerun()
-        if col_b2.button("❌ Cancelar/Reativar", key=f"cancel{eid}"):
-            novo_status = "CANCELADO" if status=="ATIVO" else "ATIVO"
-            cursor.execute("UPDATE eventos SET status=%s WHERE id=%s",(novo_status,eid))
+        c1,c2,c3 = st.columns(3)
+        if c1.button("✏️ Editar", key=f"edit{eid}"):
+            acao = "editar"
+            evento_alvo = eid
+        if c2.button("❌ Cancelar/Reativar", key=f"cancel{eid}"):
+            acao = "cancelar"
+            evento_alvo = eid
+        if c3.button("🗑 Apagar", key=f"del{eid}"):
+            acao = "apagar"
+            evento_alvo = eid
+
+    # -----------------------------
+    # Executar ação fora do loop
+    # -----------------------------
+    if acao and evento_alvo:
+        if acao == "editar":
+            st.session_state.editando = True
+            st.session_state.evento_id = evento_alvo
+        elif acao == "cancelar":
+            cursor.execute(
+                "UPDATE eventos SET status=CASE WHEN status='ATIVO' THEN 'CANCELADO' ELSE 'ATIVO' END WHERE id=%s",
+                (evento_alvo,)
+            )
             conn.commit()
-            st.experimental_rerun()
-        if col_b3.button("🗑 Apagar", key=f"del{eid}"):
-            cursor.execute("DELETE FROM eventos WHERE id=%s",(eid,))
+        elif acao == "apagar":
+            cursor.execute("DELETE FROM eventos WHERE id=%s", (evento_alvo,))
             conn.commit()
-            st.experimental_rerun()
+        st.experimental_rerun()
