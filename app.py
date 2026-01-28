@@ -3,7 +3,7 @@ import psycopg2
 from datetime import datetime, date, time, timedelta, timezone
 
 # -----------------------------
-# 1. CONFIGURAÇÃO E CONEXÃO
+# 1. CONEXÃO E LIMPEZA DE TRANSAÇÃO
 # -----------------------------
 @st.cache_resource
 def init_connection():
@@ -19,21 +19,27 @@ def init_connection():
 conn = init_connection()
 cursor = conn.cursor()
 
+# CURA PARA O ERRO InFailedSqlTransaction: 
+# Se houver erro pendente, desfaz para liberar o banco
+conn.rollback() 
+
+# -----------------------------
+# 2. CONFIGURAÇÕES E ESTADOS
+# -----------------------------
 st.set_page_config(page_title="Agenda PRCOSET", page_icon="📅", layout="wide")
 
-# Inicialização de estados
 for key in ["aba_atual", "editando", "evento_id", "msg"]:
     if key not in st.session_state:
         st.session_state[key] = "LISTA" if key == "aba_atual" else None
 
 st.title("📅 Agenda PRCOSET")
 
-# Menu
-c_m1, c_m2, _ = st.columns([1, 1, 3])
-if c_m1.button("📋 Ver Lista", use_container_width=True):
+# Menu Superior
+cm1, cm2, _ = st.columns([1,1,4])
+if cm1.button("📋 Ver Lista", use_container_width=True):
     st.session_state.aba_atual = "LISTA"
     st.rerun()
-if c_m2.button("➕ Novo Evento", use_container_width=True):
+if cm2.button("➕ Novo Evento", use_container_width=True):
     st.session_state.aba_atual = "FORM"
     st.session_state.editando, st.session_state.evento_id = False, None
     st.rerun()
@@ -43,7 +49,7 @@ if st.session_state.msg:
     st.session_state.msg = None
 
 # -----------------------------
-# 2. TELA DE FORMULÁRIO (CORREÇÃO SQL AQUI)
+# 3. TELA DE FORMULÁRIO (COM CASTS)
 # -----------------------------
 if st.session_state.aba_atual == "FORM":
     ev_db = None
@@ -52,9 +58,9 @@ if st.session_state.aba_atual == "FORM":
         ev_db = cursor.fetchone()
 
     with st.form("form_evento"):
-        col_t = st.columns(2)
-        pres_val = col_t[0].checkbox("👑 Agenda Presidente?", value=bool(ev_db[1]) if ev_db else False)
-        mot_val = col_t[1].checkbox("🚗 Precisa Motorista?", value=bool(ev_db[12]) if ev_db else False)
+        c_t = st.columns(2)
+        pres_val = c_t[0].checkbox("👑 Agenda Presidente?", value=bool(ev_db[1]) if ev_db else False)
+        mot_val = c_t[1].checkbox("🚗 Precisa Motorista?", value=bool(ev_db[12]) if ev_db else False)
         
         tit_val = st.text_input("📝 Título", value=ev_db[2] if ev_db else "")
         
@@ -75,55 +81,47 @@ if st.session_state.aba_atual == "FORM":
         st_val = st.selectbox("Status", ["ATIVO", "CANCELADO"], index=0 if not ev_db or ev_db[15]=="ATIVO" else 1)
 
         if st.form_submit_button("💾 SALVAR"):
-            # Dados organizados
-            dados = (
-                pres_val, tit_val, data_val, hi_val, hf_val,
-                loc_val, end_val, ", ".join(cob_val), resp_val, eq_val,
-                obs_val, mot_val, nm_val, tm_val, st_val
-            )
-            
-            # SQL COM CAST EXPLÍCITO (::TIPO) PARA EVITAR DATATYPE MISMATCH
-            if st.session_state.editando:
-                cursor.execute("""
-                    UPDATE eventos SET 
-                    agenda_presidente=%s::BOOLEAN, titulo=%s, data=%s::DATE, 
-                    hora_inicio=%s::TIME, hora_fim=%s::TIME, local=%s, endereco=%s, 
-                    cobertura=%s, responsaveis=%s, equipamentos=%s, observacoes=%s, 
-                    precisa_motorista=%s::BOOLEAN, motorista_nome=%s, motorista_telefone=%s, status=%s 
-                    WHERE id=%s""", dados + (st.session_state.evento_id,))
-            else:
-                cursor.execute("""
-                    INSERT INTO eventos (
-                    agenda_presidente, titulo, data, hora_inicio, hora_fim, local, endereco, 
-                    cobertura, responsaveis, equipamentos, observacoes, precisa_motorista, 
-                    motorista_nome, motorista_telefone, status) 
-                    VALUES (%s::BOOLEAN, %s, %s::DATE, %s::TIME, %s::TIME, %s, %s, %s, %s, %s, %s, %s::BOOLEAN, %s, %s, %s)""", dados)
-            
-            conn.commit()
-            st.session_state.aba_atual, st.session_state.msg = "LISTA", "💾 Evento salvo com sucesso!"
-            st.rerun()
+            dados = (pres_val, tit_val, data_val, hi_val, hf_val, loc_val, end_val, ", ".join(cob_val), resp_val, eq_val, obs_val, mot_val, nm_val, tm_val, st_val)
+            try:
+                if st.session_state.editando:
+                    cursor.execute("UPDATE eventos SET agenda_presidente=%s::BOOLEAN, titulo=%s, data=%s::DATE, hora_inicio=%s::TIME, hora_fim=%s::TIME, local=%s, endereco=%s, cobertura=%s, responsaveis=%s, equipamentos=%s, observacoes=%s, precisa_motorista=%s::BOOLEAN, motorista_nome=%s, motorista_telefone=%s, status=%s WHERE id=%s", dados + (st.session_state.evento_id,))
+                else:
+                    cursor.execute("INSERT INTO eventos (agenda_presidente, titulo, data, hora_inicio, hora_fim, local, endereco, cobertura, responsaveis, equipamentos, observacoes, precisa_motorista, motorista_nome, motorista_telefone, status) VALUES (%s::BOOLEAN, %s, %s::DATE, %s::TIME, %s::TIME, %s, %s, %s, %s, %s, %s, %s::BOOLEAN, %s, %s, %s)", dados)
+                conn.commit()
+                st.session_state.aba_atual, st.session_state.msg = "LISTA", "💾 Evento salvo com sucesso!"
+                st.rerun()
+            except Exception as e:
+                conn.rollback()
+                st.error(f"Erro ao salvar: {e}")
 
 # -----------------------------
-# 3. TELA DE LISTAGEM
+# 4. TELA DE LISTAGEM (CARDS PIXEL-PERFECT)
 # -----------------------------
 elif st.session_state.aba_atual == "LISTA":
     cursor.execute("SELECT * FROM eventos ORDER BY data ASC, hora_inicio ASC")
     eventos = cursor.fetchall()
-    agora = datetime.now(timezone(timedelta(hours=-3))).replace(tzinfo=None)
-
+    
+    if not eventos:
+        st.info("Nenhum evento encontrado.")
+        
     for ev in eventos:
-        d_dt = ev[3] if isinstance(ev[3], date) else datetime.strptime(ev[3], "%Y-%m-%d").date()
+        # ev[0]=id, ev[1]=pres, ev[2]=titulo, ev[3]=data, ev[4]=hi, ev[5]=hf, ev[6]=local, etc
+        d_dt = ev[3] if isinstance(ev[3], date) else datetime.strptime(str(ev[3]), "%Y-%m-%d").date()
         cor = "#2b488e" if ev[1] else "#109439"
         
         st.markdown(f"""
         <div style="background:{cor}; color:white; padding:20px; border-radius:12px; margin-bottom:10px; border-left: 10px solid {'#FFD700' if ev[1] else '#ffffff44'};">
-            <h3 style="margin:0;">{'👑' if ev[1] else '📌'} {ev[2]} <span style="float:right; font-size:12px;">{ev[15]}</span></h3>
-            <p style="margin-top:10px;"><b>📅 {d_dt.strftime('%d/%m/%Y')}</b> | ⏰ {ev[4]} às {ev[5]}<br>
-            📍 {ev[6]} | 🎥 {ev[8]} | 👥 {ev[9]}</p>
+            <h3 style="margin:0;">{'👑' if ev[1] else '📌'} {ev[2]} <span style="float:right; font-size:12px; background:rgba(0,0,0,0.2); padding:4px 10px; border-radius:20px;">{ev[15]}</span></h3>
+            <p style="margin-top:10px; font-size:15px;">
+                <b>📅 {d_dt.strftime('%d/%m/%Y')}</b> | ⏰ {ev[4]} às {ev[5]}<br>
+                📍 <b>Local:</b> {ev[6]} | 🏠 <b>End:</b> {ev[7]}<br>
+                🎥 <b>Cobertura:</b> {ev[8]} | 👥 <b>Equipe:</b> {ev[9]}
+            </p>
+            <div style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px; font-size:14px;">📝 {ev[11]}</div>
         </div>
         """, unsafe_allow_html=True)
 
-        c1, c2, c3, _ = st.columns([1, 1, 1, 4])
+        c1, c2, c3, _ = st.columns([1, 1.2, 1, 4])
         if c1.button("✏️ Editar", key=f"e_{ev[0]}"):
             st.session_state.editando, st.session_state.evento_id, st.session_state.aba_atual = True, ev[0], "FORM"
             st.rerun()
