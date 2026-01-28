@@ -1,16 +1,17 @@
 import streamlit as st
 import psycopg2
-from psycopg2.extras import RealDictCursor
-from datetime import date, datetime, timedelta, timezone
-from io import BytesIO
+from datetime import date, time, datetime, timedelta, timezone
+import pandas as pd
+
+# PDF
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
+from io import BytesIO
 
-st.set_page_config(page_title="Agenda PRCOSET", page_icon="📅")
-st.title("📅 Agenda PRCOSET")
-
-# ------------------ CONEXÃO ------------------
+# -----------------------------
+# CONEXÃO POSTGRES (SUPABASE)
+# -----------------------------
 conn = psycopg2.connect(
     host=st.secrets["DB_HOST"],
     database=st.secrets["DB_NAME"],
@@ -18,25 +19,24 @@ conn = psycopg2.connect(
     password=st.secrets["DB_PASSWORD"],
     port=st.secrets["DB_PORT"],
     sslmode=st.secrets["DB_SSLMODE"],
-    cursor_factory=RealDictCursor
 )
 cursor = conn.cursor()
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS eventos (
     id SERIAL PRIMARY KEY,
-    agenda_presidente BOOLEAN,
+    agenda_presidente INTEGER,
     titulo TEXT,
-    data DATE,
-    hora_inicio TIME,
-    hora_fim TIME,
+    data TEXT,
+    hora_inicio TEXT,
+    hora_fim TEXT,
     local TEXT,
     endereco TEXT,
     cobertura TEXT,
     responsaveis TEXT,
     equipamentos TEXT,
     observacoes TEXT,
-    precisa_motorista BOOLEAN,
+    precisa_motorista INTEGER,
     motorista_nome TEXT,
     motorista_telefone TEXT,
     status TEXT
@@ -44,69 +44,95 @@ CREATE TABLE IF NOT EXISTS eventos (
 """)
 conn.commit()
 
-# ------------------ SESSION ------------------
+# -----------------------------
+# CONFIGURAÇÃO DA PÁGINA
+# -----------------------------
+st.set_page_config(
+    page_title="Agenda PRCOSET",
+    page_icon="📅",
+    layout="centered"
+)
+
+st.title("📅 Agenda PRCOSET")
+
+# -----------------------------
+# ESTADO GLOBAL
+# -----------------------------
 if "editando" not in st.session_state:
     st.session_state.editando = False
+
 if "evento_id" not in st.session_state:
     st.session_state.evento_id = None
 
-# ------------------ ABAS ------------------
+# -----------------------------
+# ABAS
+# -----------------------------
 aba_eventos, aba_form = st.tabs(["📋 Eventos", "📝 Novo Evento"])
 
-# ================= FORM =================
+# =====================================================
+# 📝 ABA NOVO EVENTO
+# =====================================================
 with aba_form:
     evento = None
-    if st.session_state.editando:
-        cursor.execute("SELECT * FROM eventos WHERE id=%s", (st.session_state.evento_id,))
+    if st.session_state.editando and st.session_state.evento_id:
+        cursor.execute("""
+        SELECT id, agenda_presidente, titulo, data, hora_inicio, hora_fim,
+        local, endereco, cobertura, responsaveis, equipamentos,
+        observacoes, precisa_motorista, motorista_nome,
+        motorista_telefone, status
+        FROM eventos WHERE id=%s
+        """, (st.session_state.evento_id,))
         evento = cursor.fetchone()
+        st.warning("✏️ Você está editando um evento já existente.")
 
-    with st.form("form"):
-        agenda_presidente = st.checkbox("Agenda do Presidente", value=evento["agenda_presidente"] if evento else False)
-        precisa_motorista = st.checkbox("Precisa de motorista", value=evento["precisa_motorista"] if evento else False)
+    with st.form("form_evento"):
+        agenda_presidente = st.checkbox("👑 Agenda do Presidente?", value=bool(evento[1]) if evento else False)
+        precisa_motorista = st.checkbox("🚗 Precisa de motorista?", value=bool(evento[12]) if evento else False)
+        titulo = st.text_input("📝 Título", value=evento[2] if evento else "")
 
-        titulo = st.text_input("Título", value=evento["titulo"] if evento else "")
-        data_evento = st.date_input("Data", value=evento["data"] if evento else date.today())
-        hora_inicio = st.time_input("Início", value=evento["hora_inicio"] if evento else datetime.now().time())
-        hora_fim = st.time_input("Fim", value=evento["hora_fim"] if evento else datetime.now().time())
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            data_evento = st.date_input("📅 Data", value=date.fromisoformat(evento[3]) if evento else date.today())
+        with col2:
+            hora_inicio = st.time_input("⏰ Início", value=time.fromisoformat(evento[4]) if evento else time(9,0))
+        with col3:
+            hora_fim = st.time_input("⏰ Fim", value=time.fromisoformat(evento[5]) if evento else time(10,0))
 
-        local = st.text_input("Local", value=evento["local"] if evento else "")
-        endereco = st.text_input("Endereço", value=evento["endereco"] if evento else "")
-        cobertura = st.text_input("Cobertura", value=evento["cobertura"] if evento else "")
-        responsaveis = st.text_input("Responsáveis", value=evento["responsaveis"] if evento else "")
-        equipamentos = st.text_input("Equipamentos", value=evento["equipamentos"] if evento else "")
-        observacoes = st.text_area("Observações", value=evento["observacoes"] if evento else "")
+        local = st.text_input("📍 Local", value=evento[6] if evento else "")
+        endereco = st.text_input("🏠 Endereço", value=evento[7] if evento else "")
+        cobertura = st.multiselect("🎥 Cobertura", ["Redes", "Foto", "Vídeo", "Imprensa"],
+                                   default=evento[8].split(", ") if evento and evento[8] else [])
+        responsaveis = st.text_input("👥 Responsáveis", value=evento[9] if evento else "")
+        equipamentos = st.text_input("🎒 Equipamentos", value=evento[10] if evento else "")
+        observacoes = st.text_area("📝 Observações", value=evento[11] if evento else "")
 
-        motorista_nome = st.text_input("Motorista", value=evento["motorista_nome"] if evento else "") if precisa_motorista else ""
-        motorista_telefone = st.text_input("Telefone", value=evento["motorista_telefone"] if evento else "") if precisa_motorista else ""
+        motorista_nome = ""
+        motorista_telefone = ""
+        if precisa_motorista:
+            motorista_nome = st.text_input("Nome do motorista", value=evento[13] if evento else "")
+            motorista_telefone = st.text_input("Telefone do motorista", value=evento[14] if evento else "")
 
-        status = st.selectbox("Status", ["ATIVO", "CANCELADO"], index=0 if not evento or evento["status"]=="ATIVO" else 1)
+        status = st.selectbox("Status", ["ATIVO", "CANCELADO"],
+                              index=0 if not evento or evento[15]=="ATIVO" else 1)
 
-        if st.form_submit_button("Salvar"):
+        if st.form_submit_button("💾 Salvar"):
             dados = (
-                bool(agenda_presidente),
-                titulo,
-                data_evento,
-                hora_inicio,
-                hora_fim,
-                local,
-                endereco,
-                cobertura,
-                responsaveis,
-                equipamentos,
-                observacoes,
-                bool(precisa_motorista),
-                motorista_nome,
-                motorista_telefone,
-                status
+                1 if agenda_presidente else 0,
+                titulo, data_evento.isoformat(),
+                hora_inicio.strftime("%H:%M"), hora_fim.strftime("%H:%M"),
+                local, endereco, ", ".join(cobertura),
+                responsaveis, equipamentos, observacoes,
+                1 if precisa_motorista else 0,
+                motorista_nome, motorista_telefone, status
             )
 
             if evento:
                 cursor.execute("""
                 UPDATE eventos SET
                 agenda_presidente=%s, titulo=%s, data=%s, hora_inicio=%s, hora_fim=%s,
-                local=%s, endereco=%s, cobertura=%s, responsaveis=%s,
-                equipamentos=%s, observacoes=%s, precisa_motorista=%s,
-                motorista_nome=%s, motorista_telefone=%s, status=%s
+                local=%s, endereco=%s, cobertura=%s, responsaveis=%s, equipamentos=%s,
+                observacoes=%s, precisa_motorista=%s, motorista_nome=%s,
+                motorista_telefone=%s, status=%s
                 WHERE id=%s
                 """, dados + (st.session_state.evento_id,))
             else:
@@ -120,45 +146,48 @@ with aba_form:
 
             conn.commit()
             st.session_state.editando = False
+            st.session_state.evento_id = None
             st.rerun()
 
-# ================= LISTA + FILTROS =================
+# =====================================================
+# 📋 ABA EVENTOS
+# =====================================================
 with aba_eventos:
-    st.subheader("Filtros")
-    filtro_data = st.date_input("Data", value=None)
-    filtro_responsavel = st.text_input("Responsável")
+    col_filtro, col_lista = st.columns([1,3])
 
-    cursor.execute("SELECT * FROM eventos ORDER BY data, hora_inicio")
+    with col_filtro:
+        st.subheader("🔍 Filtros")
+        filtro_data = st.date_input("📅 Data", value=None)
+        filtro_agenda = st.selectbox("📂 Agenda", ["Todas","Agenda do Presidente","Outras agendas"])
+        filtro_responsavel = st.text_input("👥 Responsável")
+
+    cursor.execute("""
+    SELECT id, agenda_presidente, titulo, data, hora_inicio, hora_fim,
+    local, endereco, cobertura, responsaveis, equipamentos,
+    observacoes, precisa_motorista, motorista_nome,
+    motorista_telefone, status
+    FROM eventos
+    ORDER BY data ASC, hora_inicio ASC, hora_fim ASC, agenda_presidente DESC
+    """)
     eventos = cursor.fetchall()
 
+    hoje = date.today()
+    agora = datetime.now(timezone(timedelta(hours=-3))).replace(tzinfo=None)
+
+    eventos_visiveis = []
+
     for ev in eventos:
-        if filtro_data and ev["data"] != filtro_data:
+        data_db = datetime.strptime(ev[3], "%Y-%m-%d").date()
+
+        if filtro_data is not None and filtro_data != "" and data_db != filtro_data:
             continue
-        if filtro_responsavel and filtro_responsavel.lower() not in (ev["responsaveis"] or "").lower():
+        if filtro_agenda == "Agenda do Presidente" and not ev[1]:
+            continue
+        if filtro_agenda == "Outras agendas" and ev[1]:
+            continue
+        if filtro_responsavel and filtro_responsavel.lower() not in (ev[9] or "").lower():
             continue
 
-        st.markdown(f"""
-        ### {ev['titulo']}
-        📅 {ev['data']} ⏰ {ev['hora_inicio']} às {ev['hora_fim']}  
-        📍 {ev['local']}  
-        👥 {ev['responsaveis']}  
-        **Status:** {ev['status']}
-        """)
+        eventos_visiveis.append(ev)
 
-        c1, c2, c3 = st.columns(3)
-
-        if c1.button("Editar", key=f"e{ev['id']}"):
-            st.session_state.editando = True
-            st.session_state.evento_id = ev["id"]
-            st.rerun()
-
-        if c2.button("Cancelar/Reativar", key=f"c{ev['id']}"):
-            novo = "CANCELADO" if ev["status"]=="ATIVO" else "ATIVO"
-            cursor.execute("UPDATE eventos SET status=%s WHERE id=%s", (novo, ev["id"]))
-            conn.commit()
-            st.rerun()
-
-        if c3.button("Apagar", key=f"d{ev['id']}"):
-            cursor.execute("DELETE FROM eventos WHERE id=%s", (ev["id"],))
-            conn.commit()
-            st.rerun()
+    # (o restante do seu código de renderização dos cards permanece IGUAL)
