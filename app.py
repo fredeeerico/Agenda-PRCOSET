@@ -5,7 +5,7 @@
 # - 10 eventos de teste automáticos
 # - Cards pixel-perfect
 # - Filtros por data, agenda e responsável
-# - Botões Editar, Cancelar/Reativar e Apagar seguros
+# - Botões Editar, Cancelar/Reativar e Apagar sem erro
 # - Conversão segura de datas e horas
 # - Seção de cores configurável
 # -----------------------------
@@ -119,8 +119,8 @@ if "editando" not in st.session_state:
     st.session_state.editando = False
 if "evento_id" not in st.session_state:
     st.session_state.evento_id = None
-if "reload" not in st.session_state:
-    st.session_state.reload = False  # flag segura para rerun
+if "refresh" not in st.session_state:
+    st.session_state.refresh = False
 
 # -----------------------------
 # ABAS
@@ -196,16 +196,12 @@ with aba_form:
             conn.commit()
             st.session_state.editando = False
             st.session_state.evento_id = None
-            st.session_state.reload = True  # set flag para rerun
+            st.session_state.refresh = True  # flag segura para atualizar a aba
 
 # -----------------------------
 # ABA EVENTOS
 # -----------------------------
 with aba_eventos:
-    if st.session_state.reload:
-        st.session_state.reload = False
-        st.experimental_rerun()  # rerun seguro fora de loop/form
-
     col_filtro, col_lista = st.columns([1,3])
     with col_filtro:
         st.subheader("🔍 Filtros")
@@ -224,18 +220,9 @@ with aba_eventos:
 
         # --- Conversão segura ---
         data_dt = data_ev if isinstance(data_ev, date) else datetime.strptime(str(data_ev), "%Y-%m-%d").date()
-        def safe_time_parse(h):
-            if isinstance(h, time):
-                return h
-            h_str = str(h)
-            for fmt in ("%H:%M:%S","%H:%M"):
-                try:
-                    return datetime.strptime(h_str, fmt).time()
-                except ValueError:
-                    continue
-            return time(0,0)
-        hi_dt = safe_time_parse(hi)
-        hf_dt = safe_time_parse(hf)
+        hi_dt = hi if isinstance(hi, time) else datetime.strptime(str(hi), "%H:%M:%S").time()
+        hf_dt = hf if isinstance(hf, time) else datetime.strptime(str(hf), "%H:%M:%S").time()
+
         inicio_dt = datetime.combine(data_dt, hi_dt)
         fim_dt = datetime.combine(data_dt, hf_dt)
 
@@ -295,18 +282,25 @@ with aba_eventos:
         </div>
         """, unsafe_allow_html=True)
 
-        # --- Botões seguros ---
-        c1,c2,c3 = st.columns(3)
-        if c1.button("✏️ Editar", key=f"edit{eid}"):
+        # --- Botões sem quebrar aba Novo Evento ---
+        col1, col2, col3 = st.columns(3)
+        if col1.button("✏️ Editar", key=f"edit{eid}"):
             st.session_state.editando=True
             st.session_state.evento_id=eid
-            st.session_state.reload=True
-        if c2.button("❌ Cancelar/Reativar", key=f"cancel{eid}"):
+            st.session_state.refresh=True
+        if col2.button("❌ Cancelar/Reativar", key=f"cancel{eid}"):
             novo_status = "CANCELADO" if status=="ATIVO" else "ATIVO"
             cursor.execute("UPDATE eventos SET status=%s WHERE id=%s",(novo_status,eid))
             conn.commit()
-            st.session_state.reload=True
-        if c3.button("🗑 Apagar", key=f"del{eid}"):
+            st.session_state.refresh=True
+        if col3.button("🗑 Apagar", key=f"del{eid}"):
             cursor.execute("DELETE FROM eventos WHERE id=%s",(eid,))
             conn.commit()
-            st.session_state.reload=True
+            st.session_state.refresh=True
+
+# -----------------------------
+# Atualizar a página se necessário
+# -----------------------------
+if st.session_state.refresh:
+    st.session_state.refresh=False
+    st.experimental_rerun()
