@@ -30,6 +30,7 @@ conn = psycopg2.connect(
 )
 cursor = conn.cursor()
 
+# Garantir que a tabela existe
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS eventos (
     id SERIAL PRIMARY KEY,
@@ -66,21 +67,7 @@ if "evento_id" not in st.session_state:
 aba_eventos, aba_form = st.tabs(["📋 Lista de Eventos", "📝 Gerenciar Evento"])
 
 # -----------------------------
-# Função Auxiliar: parsing seguro de hora
-# -----------------------------
-def safe_time_parse(h):
-    if isinstance(h, time):
-        return h
-    h_str = str(h)
-    for fmt in ("%H:%M:%S", "%H:%M"):
-        try:
-            return datetime.strptime(h_str, fmt).time()
-        except ValueError:
-            continue
-    return time(0,0)
-
-# -----------------------------
-# 4. ABA FORMULÁRIO
+# 4. ABA DE FORMULÁRIO (NOVO/EDITAR)
 # -----------------------------
 with aba_form:
     evento_db = None
@@ -88,91 +75,66 @@ with aba_form:
         cursor.execute("SELECT * FROM eventos WHERE id=%s", (st.session_state.evento_id,))
         evento_db = cursor.fetchone()
         st.warning(f"✏️ Modo Edição Ativado")
-
-        def cancelar_edicao():
+        if st.button("Cancelar Edição"):
             st.session_state.editando = False
             st.session_state.evento_id = None
-            st.experimental_rerun()
-
-        st.button("Cancelar Edição", on_click=cancelar_edicao)
+            st.rerun()
 
     with st.form("form_evento"):
-        agenda_presidente = st.checkbox(
-            "👑 Agenda do Presidente?", 
-            value=bool(evento_db[1]) if evento_db else False
-        )
-        precisa_motorista = st.checkbox(
-            "🚗 Precisa de motorista?", 
-            value=bool(evento_db[12]) if evento_db else False
-        )
+        agenda_presidente = st.checkbox("👑 Agenda do Presidente?", value=bool(evento_db[1]) if evento_db else False)
+        precisa_motorista = st.checkbox("🚗 Precisa de motorista?", value=bool(evento_db[12]) if evento_db else False)
         titulo = st.text_input("📝 Título", value=evento_db[2] if evento_db else "")
 
         col1, col2, col3 = st.columns(3)
         with col1:
             data_evento = st.date_input("📅 Data", value=evento_db[3] if evento_db else date.today())
         with col2:
-            hora_inicio = st.time_input(
-                "⏰ Início", 
-                value=safe_time_parse(evento_db[4]) if evento_db else time(9,0)
-            )
+            hora_inicio = st.time_input("⏰ Início", value=evento_db[4] if evento_db else time(9,0))
         with col3:
-            hora_fim = st.time_input(
-                "⏰ Fim", 
-                value=safe_time_parse(evento_db[5]) if evento_db else time(10,0)
-            )
+            hora_fim = st.time_input("⏰ Fim", value=evento_db[5] if evento_db else time(10,0))
 
         local = st.text_input("📍 Local", value=evento_db[6] if evento_db else "")
         endereco = st.text_input("🏠 Endereço", value=evento_db[7] if evento_db else "")
-
+        
         opcoes_cob = ["Redes", "Foto", "Vídeo", "Imprensa"]
         def_cob = evento_db[8].split(", ") if evento_db and evento_db[8] else []
-        cobertura = st.multiselect(
-            "🎥 Cobertura", 
-            opcoes_cob, 
-            default=[c for c in def_cob if c in opcoes_cob]
-        )
-
+        cobertura = st.multiselect("🎥 Cobertura", opcoes_cob, default=[c for c in def_cob if c in opcoes_cob])
+        
         responsaveis = st.text_input("👥 Responsáveis", value=evento_db[9] if evento_db else "")
         equipamentos = st.text_input("🎒 Equipamentos", value=evento_db[10] if evento_db else "")
         observacoes = st.text_area("📝 Observações", value=evento_db[11] if evento_db else "")
 
         motorista_nome = st.text_input("Nome do motorista", value=evento_db[13] if evento_db else "")
         motorista_telefone = st.text_input("Telefone do motorista", value=evento_db[14] if evento_db else "")
-        status_form = st.selectbox(
-            "Status", 
-            ["ATIVO", "CANCELADO"], 
-            index=0 if not evento_db or evento_db[15]=="ATIVO" else 1
-        )
+        status_form = st.selectbox("Status", ["ATIVO", "CANCELADO"], index=0 if not evento_db or evento_db[15]=="ATIVO" else 1)
 
-        def salvar_evento():
+        if st.form_submit_button("💾 Salvar Informações"):
             dados = (
                 bool(agenda_presidente), titulo, data_evento, hora_inicio, hora_fim,
                 local, endereco, ", ".join(cobertura), responsaveis, equipamentos,
                 observacoes, bool(precisa_motorista), motorista_nome, motorista_telefone, status_form
             )
+            
             if st.session_state.editando:
                 cursor.execute("""
-                    UPDATE eventos SET agenda_presidente=%s, titulo=%s, data=%s, hora_inicio=%s, hora_fim=%s,
-                    local=%s, endereco=%s, cobertura=%s, responsaveis=%s, equipamentos=%s,
-                    observacoes=%s, precisa_motorista=%s, motorista_nome=%s, motorista_telefone=%s, status=%s
-                    WHERE id=%s
-                """, dados + (st.session_state.evento_id,))
+                UPDATE eventos SET agenda_presidente=%s, titulo=%s, data=%s, hora_inicio=%s, hora_fim=%s,
+                local=%s, endereco=%s, cobertura=%s, responsaveis=%s, equipamentos=%s,
+                observacoes=%s, precisa_motorista=%s, motorista_nome=%s, motorista_telefone=%s, status=%s
+                WHERE id=%s""", dados + (st.session_state.evento_id,))
             else:
                 cursor.execute("""
-                    INSERT INTO eventos (agenda_presidente, titulo, data, hora_inicio, hora_fim, local, endereco, 
-                    cobertura, responsaveis, equipamentos, observacoes, precisa_motorista, motorista_nome, 
-                    motorista_telefone, status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                """, dados)
+                INSERT INTO eventos (agenda_presidente, titulo, data, hora_inicio, hora_fim, local, endereco, 
+                cobertura, responsaveis, equipamentos, observacoes, precisa_motorista, motorista_nome, 
+                motorista_telefone, status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", dados)
+            
             conn.commit()
             st.session_state.editando = False
             st.session_state.evento_id = None
             st.success("Evento salvo com sucesso!")
-            st.experimental_rerun()
-
-        st.form_submit_button("💾 Salvar Informações", on_click=salvar_evento)
+            st.rerun()
 
 # -----------------------------
-# 5. ABA LISTAGEM (CARDS)
+# 5. ABA DE LISTAGEM (CARDS)
 # -----------------------------
 with aba_eventos:
     col_f1, col_f2, col_f3 = st.columns(3)
@@ -186,9 +148,9 @@ with aba_eventos:
 
     for ev in eventos:
         eid, pres, tit, d_ev, hi, hf, loc, end, cob, resp, equip, obs, p_mot, n_mot, t_mot, stat = ev
+
+        # Correção de tipo de data para comparação
         d_ev_dt = datetime.strptime(d_ev, "%Y-%m-%d").date() if isinstance(d_ev, str) else d_ev
-        hi_dt = safe_time_parse(hi)
-        hf_dt = safe_time_parse(hf)
 
         # Aplicar Filtros
         if f_data and d_ev_dt != f_data: continue
@@ -201,18 +163,19 @@ with aba_eventos:
         cor_fonte = COR_FONTE_PRESIDENTE if pres else COR_FONTE_OUTRA
         opacidade = OPACIDADE_PASSADO if (d_ev_dt < agora.date()) else "1"
         decor = "line-through" if stat == "CANCELADO" else "none"
-
+        
         # WhatsApp Link
         link_zap = ""
         if p_mot and t_mot:
             tel_limpo = "".join(filter(str.isdigit, str(t_mot)))
-            link_zap = f"<br>🚗 <b>Motorista:</b> {n_mot} (<a href='https://wa.me/{tel_limpo}' style='color:white;'>{t_mot}</a>)"
+            link_zap = f"<br>🚗 <b>Motorista:</b> {n_mot} (<a href='https://wa.me{tel_limpo}' style='color:white;'>{t_mot}</a>)"
 
+        # Renderização do Card HTML
         st.markdown(f"""
         <div style="background:{cor_fundo}; color:{cor_fonte}; padding:20px; border-radius:12px; margin-bottom:10px; opacity:{opacidade}; text-decoration:{decor}; border-left: 10px solid {'#FFD700' if pres else '#ffffff44'};">
             <h3 style="margin:0;">{'👑 PRESIDENTE:' if pres else '📌 EVENTO:'} {tit} <span style="float:right; font-size:12px; background:rgba(0,0,0,0.3); padding:4px 10px; border-radius:20px;">{stat}</span></h3>
             <div style="margin-top:10px; font-size:15px; line-height:1.5;">
-                <b>📅 Data:</b> {d_ev_dt.strftime('%d/%m/%Y')} | <b>⏰ Hora:</b> {hi_dt.strftime('%H:%M')} às {hf_dt.strftime('%H:%M')}<br>
+                <b>📅 Data:</b> {d_ev_dt.strftime('%d/%m/%Y')} | <b>⏰ Hora:</b> {hi} às {hf}<br>
                 <b>📍 Local:</b> {loc} | <b>🏠 Endereço:</b> {end}<br>
                 <b>🎥 Cobertura:</b> {cob} | <b>👥 Responsáveis:</b> {resp}<br>
                 <b>🎒 Equipamentos:</b> {equip} {link_zap}
@@ -223,26 +186,19 @@ with aba_eventos:
         </div>
         """, unsafe_allow_html=True)
 
-        # Funções para botões
-        def editar_evento(eid=eid):
-            st.session_state.editando = True
-            st.session_state.evento_id = eid
-            st.experimental_rerun()
-
-        def alternar_status(eid=eid, stat=stat):
-            novo_status = "ATIVO" if stat=="CANCELADO" else "CANCELADO"
-            cursor.execute("UPDATE eventos SET status=%s WHERE id=%s", (novo_status, eid))
-            conn.commit()
-            st.experimental_rerun()
-
-        def excluir_evento(eid=eid):
-            cursor.execute("DELETE FROM eventos WHERE id=%s", (eid,))
-            conn.commit()
-            st.experimental_rerun()
-
-        c1, c2, c3, _ = st.columns([1,1.2,1,4])
-        c1.button("✏️ Editar", key=f"ed_{eid}", on_click=editar_evento)
-        label_bt = "Ativar" if stat == "CANCELADO" else "Cancelar"
-        c2.button(f"🚫 {label_bt}", key=f"st_{eid}", on_click=alternar_status)
-        c3.button("🗑️ Excluir", key=f"del_{eid}", on_click=excluir_evento)
-        st.write("")  # Espaçador
+        # Botões de Controle
+        c1, c2, c3, _ = st.columns([1, 1.2, 1, 4])
+        with c1:
+            if st.button("✏️ Editar", key=f"ed_{eid}"):
+                st.session_state.editando, st.session_state.evento_id = True, eid
+                st.rerun()
+        with c2:
+            label_bt = "Ativar" if stat == "CANCELADO" else "Cancelar"
+            if st.button(f"🚫 {label_bt}", key=f"st_{eid}"):
+                cursor.execute("UPDATE eventos SET status=%s WHERE id=%s", ("ATIVO" if stat=="CANCELADO" else "CANCELADO", eid))
+                conn.commit(); st.rerun()
+        with c3:
+            if st.button("🗑️ Excluir", key=f"del_{eid}"):
+                cursor.execute("DELETE FROM eventos WHERE id=%s", (eid,))
+                conn.commit(); st.rerun()
+        st.write("") # Espaçador
