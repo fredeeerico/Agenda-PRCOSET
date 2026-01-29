@@ -113,7 +113,7 @@ if st.session_state.aba_atual == "FORM":
                 st.error(f"Erro ao salvar: {e}")
 
 # -----------------------------
-# 4. TELA DE LISTAGEM (COM FILTROS E CARDS COMPLETOS)
+# 4. TELA DE LISTAGEM (FINAL E CORRIGIDA)
 # -----------------------------
 elif st.session_state.aba_atual == "LISTA":
     
@@ -135,11 +135,10 @@ elif st.session_state.aba_atual == "LISTA":
     if not eventos:
         st.info("Nenhum evento encontrado.")
 
-    # Loop de exibição com aplicação de filtros
     for ev in eventos:
         # MAPEAMENTO: 0:id, 1:pres, 2:tit, 3:data, 4:hi, 5:hf, 6:loc, 7:end, 8:cob, 9:resp, 10:eq, 11:obs, 12:pmot, 13:nmot, 14:tmot, 15:stat
         
-        # Converte data para comparação
+        # Converte data de forma segura
         d_dt = ev[3] if isinstance(ev[3], date) else datetime.strptime(str(ev[3]), "%Y-%m-%d").date()
 
         # --- APLICAÇÃO DOS FILTROS ---
@@ -152,7 +151,7 @@ elif st.session_state.aba_atual == "LISTA":
         if filtro_equipe and filtro_equipe.lower() not in str(ev[9]).lower():
             continue
 
-        # Estilo visual
+        # Regras Visuais
         cor = "#2b488e" if ev[1] == 1 else "#109439"
         opac = "0.6" if d_dt < agora.date() else "1"
         decor = "line-through" if ev[15] == "CANCELADO" else "none"
@@ -182,17 +181,23 @@ elif st.session_state.aba_atual == "LISTA":
 
         # Botões de Ação
         c1, c2, c3, _ = st.columns([1, 1.2, 1, 4])
-        if c1.button("✏️ Editar", key=f"e_{ev[0]}"):
-            st.session_state.editando, st.session_state.evento_id, st.session_state.aba_atual = True, ev[0], "FORM"
-            st.rerun()
-        if c2.button("🚫 Alterar Status", key=f"s_{ev[0]}"):
+        with c1:
+            if st.button("✏️ Editar", key=f"e_{ev[0]}"):
+                st.session_state.editando, st.session_state.evento_id, st.session_state.aba_atual = True, ev[0], "FORM"
+                st.rerun()
+        with c2:
             novo_s = "CANCELADO" if ev[15]=="ATIVO" else "ATIVO"
-            cursor.execute("UPDATE eventos SET status=%s WHERE id=%s", (novo_s, ev[0]))
-            conn.commit(); st.rerun()
-        if c3.button("🗑️ Excluir", key=f"d_{ev[0]}"):
-            cursor.execute("DELETE FROM eventos WHERE id=%s", (ev[0]))
-            conn.commit(); st.rerun()
-
+            if st.button(f"🚫 Status", key=f"s_{ev[0]}"):
+                cursor.execute("UPDATE eventos SET status=%s WHERE id=%s", (novo_s, ev[0]))
+                conn.commit()
+                st.rerun()
+        with c3:
+            # CORREÇÃO AQUI: Passando id como tupla (id,)
+            if st.button("🗑️ Excluir", key=f"d_{ev[0]}"):
+                cursor.execute("DELETE FROM eventos WHERE id=%s", (ev[0],))
+                conn.commit()
+                st.session_state.msg = "🗑️ Evento excluído com sucesso!"
+                st.rerun()
 
 # -----------------------------
 # 5. TELA DE LISTAGEM (CARDS COMPLETOS)
@@ -245,4 +250,5 @@ elif st.session_state.aba_atual == "LISTA":
         if c3.button("🗑️ Excluir", key=f"d_{ev[0]}"):
             cursor.execute("DELETE FROM eventos WHERE id=%s", (ev[0],))
             conn.commit(); st.rerun()
+
 
