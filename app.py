@@ -113,7 +113,89 @@ if st.session_state.aba_atual == "FORM":
                 st.error(f"Erro ao salvar: {e}")
 
 # -----------------------------
-# 4. TELA DE LISTAGEM (CARDS COMPLETOS)
+# 4. TELA DE LISTAGEM (COM FILTROS E CARDS COMPLETOS)
+# -----------------------------
+elif st.session_state.aba_atual == "LISTA":
+    
+    # --- SEÇÃO DE FILTROS ---
+    with st.expander("🔍 FILTRAR BUSCA", expanded=False):
+        f_col1, f_col2, f_col3 = st.columns(3)
+        with f_col1:
+            filtro_data = st.date_input("Filtrar por Data", value=None)
+        with f_col2:
+            filtro_tipo = st.selectbox("Tipo de Agenda", ["Todas", "Agenda do Presidente", "Outras Agendas"])
+        with f_col3:
+            filtro_equipe = st.text_input("Buscar por Responsável", placeholder="Ex: Fred, Ana...")
+
+    # Busca os eventos no banco
+    cursor.execute("SELECT * FROM eventos ORDER BY data ASC, hora_inicio ASC")
+    eventos = cursor.fetchall()
+    agora = datetime.now(timezone(timedelta(hours=-3))).replace(tzinfo=None)
+
+    if not eventos:
+        st.info("Nenhum evento encontrado.")
+
+    # Loop de exibição com aplicação de filtros
+    for ev in eventos:
+        # MAPEAMENTO: 0:id, 1:pres, 2:tit, 3:data, 4:hi, 5:hf, 6:loc, 7:end, 8:cob, 9:resp, 10:eq, 11:obs, 12:pmot, 13:nmot, 14:tmot, 15:stat
+        
+        # Converte data para comparação
+        d_dt = ev[3] if isinstance(ev[3], date) else datetime.strptime(str(ev[3]), "%Y-%m-%d").date()
+
+        # --- APLICAÇÃO DOS FILTROS ---
+        if filtro_data and d_dt != filtro_data:
+            continue
+        if filtro_tipo == "Agenda do Presidente" and ev[1] != 1:
+            continue
+        if filtro_tipo == "Outras Agendas" and ev[1] == 1:
+            continue
+        if filtro_equipe and filtro_equipe.lower() not in str(ev[9]).lower():
+            continue
+
+        # Estilo visual
+        cor = "#2b488e" if ev[1] == 1 else "#109439"
+        opac = "0.6" if d_dt < agora.date() else "1"
+        decor = "line-through" if ev[15] == "CANCELADO" else "none"
+        
+        # Link WhatsApp Motorista
+        link_zap = ""
+        if ev[12] == 1 and ev[14]:
+            zap_limpo = "".join(filter(str.isdigit, str(ev[14])))
+            link_zap = f"<br>🚗 <b>Motorista:</b> {ev[13]} (<a href='https://wa.me{zap_limpo}' style='color:white; font-weight:bold;'>{ev[14]}</a>)"
+
+        # Renderização do Card
+        st.markdown(f"""
+        <div style="background:{cor}; color:white; padding:22px; border-radius:15px; margin-bottom:15px; opacity:{opac}; text-decoration:{decor}; border-left: 12px solid {'#FFD700' if ev[1] == 1 else '#ffffff44'};">
+            <h3 style="margin:0; font-size:22px;">{'👑' if ev[1] == 1 else '📌'} {ev[2]} <span style="float:right; font-size:12px; background:rgba(0,0,0,0.3); padding:5px 12px; border-radius:20px;">{ev[15]}</span></h3>
+            <div style="margin-top:12px; font-size:16px; line-height:1.6;">
+                <b>📅 {d_dt.strftime('%d/%m/%Y')}</b> | ⏰ {ev[4]} às {ev[5]}<br>
+                📍 <b>Local:</b> {ev[6]}<br>
+                🏠 <b>Endereço:</b> {ev[7]}<br>
+                🎥 <b>Cobertura:</b> {ev[8]} | 👥 <b>Equipe:</b> {ev[9]}<br>
+                🎒 <b>Equipamentos:</b> {ev[10]} {link_zap}
+            </div>
+            <div style="background: rgba(255,255,255,0.15); padding: 12px; border-radius: 8px; margin-top: 15px; font-size:14px; border: 1px dashed rgba(255,255,255,0.3);">
+                <b>📝 OBSERVAÇÕES:</b> {ev[11] if ev[11] else "Sem observações."}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Botões de Ação
+        c1, c2, c3, _ = st.columns([1, 1.2, 1, 4])
+        if c1.button("✏️ Editar", key=f"e_{ev[0]}"):
+            st.session_state.editando, st.session_state.evento_id, st.session_state.aba_atual = True, ev[0], "FORM"
+            st.rerun()
+        if c2.button("🚫 Alterar Status", key=f"s_{ev[0]}"):
+            novo_s = "CANCELADO" if ev[15]=="ATIVO" else "ATIVO"
+            cursor.execute("UPDATE eventos SET status=%s WHERE id=%s", (novo_s, ev[0]))
+            conn.commit(); st.rerun()
+        if c3.button("🗑️ Excluir", key=f"d_{ev[0]}"):
+            cursor.execute("DELETE FROM eventos WHERE id=%s", (ev[0]))
+            conn.commit(); st.rerun()
+
+
+# -----------------------------
+# 5. TELA DE LISTAGEM (CARDS COMPLETOS)
 # -----------------------------
 elif st.session_state.aba_atual == "LISTA":
     cursor.execute("SELECT * FROM eventos ORDER BY data ASC, hora_inicio ASC")
@@ -163,3 +245,4 @@ elif st.session_state.aba_atual == "LISTA":
         if c3.button("🗑️ Excluir", key=f"d_{ev[0]}"):
             cursor.execute("DELETE FROM eventos WHERE id=%s", (ev[0],))
             conn.commit(); st.rerun()
+
