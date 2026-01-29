@@ -113,7 +113,7 @@ if st.session_state.aba_atual == "FORM":
                 st.error(f"Erro ao salvar: {e}")
 
 # -----------------------------
-# 4. TELA DE LISTAGEM (CORREÇÃO DE FORMATO DE HORA)
+# 4. TELA DE LISTAGEM (CARDS COMPLETOS + DINÂMICA DE CORES)
 # -----------------------------
 elif st.session_state.aba_atual == "LISTA":
     
@@ -121,21 +121,21 @@ elif st.session_state.aba_atual == "LISTA":
         f_col1, f_col2, f_col3 = st.columns(3)
         with f_col1: filtro_data = st.date_input("Filtrar por Data", value=None)
         with f_col2: filtro_tipo = st.selectbox("Tipo de Agenda", ["Todas", "Agenda do Presidente", "Outras Agendas"])
-        with f_col3: filtro_equipe = st.text_input("Buscar por Responsável")
+        with f_col3: filtro_equipe = st.text_input("Buscar por Responsável", placeholder="Ex: Fred, Ana...")
 
     cursor.execute("SELECT * FROM eventos ORDER BY data ASC, hora_inicio ASC")
     eventos = cursor.fetchall()
     
+    # Hora atual ajustada (Brasília - UTC-3)
     agora_dt = datetime.now(timezone(timedelta(hours=-3))).replace(tzinfo=None)
     hoje = agora_dt.date()
-    hora_agora = agora_dt.time()
+    hora_agora_str = agora_dt.time().strftime('%H:%M')
 
-    # Função interna para formatar hora sem erro
+    # Função para formatar hora sem erro de AttributeError
     def formatar_hora(valor):
         if isinstance(valor, time):
             return valor.strftime('%H:%M')
         try:
-            # Caso venha como string ou timedelta do banco
             return str(valor)[:5]
         except:
             return "00:00"
@@ -144,52 +144,77 @@ elif st.session_state.aba_atual == "LISTA":
         st.info("Nenhum evento encontrado.")
 
     for ev in eventos:
-        # ev[3]: data, ev[4]: hora_inicio, ev[5]: hora_fim
+        # MAPEAMENTO: 0:id, 1:pres, 2:tit, 3:data, 4:hi, 5:hf, 6:loc, 7:end, 8:cob, 9:resp, 10:eq, 11:obs, 12:pmot, 13:nmot, 14:tmot, 15:stat
+        
+        # Converte data de forma segura
         d_dt = ev[3] if isinstance(ev[3], date) else datetime.strptime(str(ev[3]), "%Y-%m-%d").date()
 
+        # Aplicação dos Filtros
         if filtro_data and d_dt != filtro_data: continue
         if filtro_tipo == "Agenda do Presidente" and ev[1] != 1: continue
         if filtro_tipo == "Outras Agendas" and ev[1] == 1: continue
         if filtro_equipe and filtro_equipe.lower() not in str(ev[9]).lower(): continue
 
-        # --- LÓGICA DE CORES ---
+        # --- LÓGICA DINÂMICA DE CORES ---
         cor_base = "#2b488e" if ev[1] == 1 else "#109439"
         cor_fonte = "white"
         borda, badge, opac = "none", "", "1"
-
-        if d_dt < hoje:
-            cor_base, cor_fonte, opac = "#d9d9d9", "#666666", "0.7"
-        elif d_dt == hoje:
-            borda, badge = "6px solid #FFD700", "<span style='background:#FFD700; color:black; padding:3px 10px; border-radius:10px; font-weight:bold; font-size:12px; margin-left:10px;'>HOJE!</span>"
-            # Compara hora atual (converte hi/hf para string e depois time para garantir)
-            hi_str = formatar_hora(ev[4])
-            hf_str = formatar_hora(ev[5])
-            if hi_str <= hora_agora.strftime('%H:%M') <= hf_str:
-                borda, badge = "6px solid #ff2b2b", "<span style='background:#ff2b2b; color:white; padding:3px 10px; border-radius:10px; font-weight:bold; font-size:12px; margin-left:10px;'>AGORA!</span>"
-
         decor = "line-through" if ev[15] == "CANCELADO" else "none"
 
+        # 1. Ontem ou antes (Cinza)
+        if d_dt < hoje:
+            cor_base, cor_fonte, opac = "#d9d9d9", "#666666", "0.7"
+        
+        # 2. Hoje (Destaque Amarelo)
+        elif d_dt == hoje:
+            borda = "6px solid #FFD700"
+            badge = "<span style='background:#FFD700; color:black; padding:3px 10px; border-radius:10px; font-weight:bold; font-size:12px; margin-left:10px;'>HOJE!</span>"
+            
+            # 3. Agora (Destaque Vermelho)
+            hi_s = formatar_hora(ev[4])
+            hf_s = formatar_hora(ev[5])
+            if hi_s <= hora_agora_str <= hf_s:
+                borda = "6px solid #ff2b2b"
+                badge = "<span style='background:#ff2b2b; color:white; padding:3px 10px; border-radius:10px; font-weight:bold; font-size:12px; margin-left:10px;'>AGORA!</span>"
+
+        # Link WhatsApp Motorista
+        link_zap = ""
+        if ev[12] == 1 and ev[14]:
+            zap_limpo = "".join(filter(str.isdigit, str(ev[14])))
+            link_zap = f"<br>🚗 <b>Motorista:</b> {ev[13]} (<a href='https://wa.me{zap_limpo}' style='color:{cor_fonte}; font-weight:bold;'>{ev[14]}</a>)"
+
+        # --- RENDERIZAÇÃO DO CARD COMPLETO ---
         st.markdown(f"""
-        <div style="background:{cor_base}; color:{cor_fonte}; padding:22px; border-radius:15px; margin-bottom:15px; opacity:{opac}; text-decoration:{decor}; border:{borda};">
-            <h3 style="margin:0; font-size:22px;">{'👑' if ev[1] == 1 else '📌'} {ev[2]} {badge} <span style="float:right; font-size:12px; background:rgba(0,0,0,0.2); padding:5px 12px; border-radius:20px;">{ev[15]}</span></h3>
+        <div style="background:{cor_base}; color:{cor_fonte}; padding:22px; border-radius:15px; margin-bottom:15px; opacity:{opac}; text-decoration:{decor}; border:{borda}; border-left: 12px solid {'#FFD700' if ev[1] == 1 and d_dt >= hoje else '#ffffff44'};">
+            <h3 style="margin:0; font-size:22px;">{'👑' if ev[1] == 1 else '📌'} {ev[2]} {badge} <span style="float:right; font-size:12px; background:rgba(0,0,0,0.3); padding:5px 12px; border-radius:20px;">{ev[15]}</span></h3>
             <div style="margin-top:12px; font-size:16px; line-height:1.6;">
                 <b>📅 {d_dt.strftime('%d/%m/%Y')}</b> | ⏰ {formatar_hora(ev[4])} às {formatar_hora(ev[5])}<br>
-                📍 <b>Local:</b> {ev[6]} | 🏠 <b>End:</b> {ev[7]}<br>
-                🎥 <b>Cobertura:</b> {ev[8]} | 👥 <b>Equipe:</b> {ev[9]}
+                📍 <b>Local:</b> {ev[6]}<br>
+                🏠 <b>Endereço:</b> {ev[7]}<br>
+                🎥 <b>Cobertura:</b> {ev[8]} | 👥 <b>Equipe:</b> {ev[9]}<br>
+                🎒 <b>Equipamentos:</b> {ev[10]} {link_zap}
+            </div>
+            <div style="background: rgba(255,255,255,0.15); padding: 12px; border-radius: 8px; margin-top: 15px; font-size:14px; border: 1px dashed rgba(255,255,255,0.3);">
+                <b>📝 OBSERVAÇÕES:</b> {ev[11] if ev[11] else "Sem observações."}
             </div>
         </div>
         """, unsafe_allow_html=True)
 
+        # Botões de Ação
         c1, c2, c3, _ = st.columns([1, 1.2, 1, 4])
-        if c1.button("✏️ Editar", key=f"e_{ev[0]}"):
-            st.session_state.editando, st.session_state.evento_id, st.session_state.aba_atual = True, ev[0], "FORM"
-            st.rerun()
-        if c2.button("🚫 Status", key=f"s_{ev[0]}"):
-            cursor.execute("UPDATE eventos SET status=%s WHERE id=%s", ("CANCELADO" if ev[15]=="ATIVO" else "ATIVO", ev[0]))
-            conn.commit(); st.rerun()
-        if c3.button("🗑️ Excluir", key=f"d_{ev[0]}"):
-            cursor.execute("DELETE FROM eventos WHERE id=%s", (ev[0],))
-            conn.commit(); st.rerun()
+        with c1:
+            if st.button("✏️ Editar", key=f"e_{ev[0]}"):
+                st.session_state.editando, st.session_state.evento_id, st.session_state.aba_atual = True, ev[0], "FORM"
+                st.rerun()
+        with c2:
+            novo_st = "CANCELADO" if ev[15]=="ATIVO" else "ATIVO"
+            if st.button(f"🚫 Status", key=f"s_{ev[0]}"):
+                cursor.execute("UPDATE eventos SET status=%s WHERE id=%s", (novo_st, ev[0]))
+                conn.commit(); st.rerun()
+        with c3:
+            if st.button("🗑️ Excluir", key=f"d_{ev[0]}"):
+                cursor.execute("DELETE FROM eventos WHERE id=%s", (ev[0],))
+                conn.commit(); st.rerun()
 
 # -----------------------------
 # 5. TELA DE LISTAGEM (CARDS COMPLETOS)
@@ -242,6 +267,7 @@ elif st.session_state.aba_atual == "LISTA":
         if c3.button("🗑️ Excluir", key=f"d_{ev[0]}"):
             cursor.execute("DELETE FROM eventos WHERE id=%s", (ev[0],))
             conn.commit(); st.rerun()
+
 
 
 
